@@ -13,7 +13,7 @@ def build(checkpoint_path, config_path, output_name):
         os.mkdir('saved_models/'+output_name)
     
     with open(config_path) as f:
-        config = yaml.load(f)
+        config = yaml.load(f, Loader=yaml.Loader)
     num_channels = config['model_params']['common_params']['num_channels']
     num_kp = config['model_params']['common_params']['num_kp']
         

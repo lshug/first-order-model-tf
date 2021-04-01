@@ -24,7 +24,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         end = (i+1)*batch_size
         driving_video_tensor = tf.convert_to_tensor(driving_video[start:end])
         kp_driving.append(kp_detector(driving_video_tensor))
-    kp_driving = tf.concat(kp_driving,0)    
+    kp_driving = tf.concat(kp_driving, 0)    
     del driving_video
     
     #Step 3: process kp_driving

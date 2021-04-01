@@ -8,8 +8,8 @@ import argparse
 
 parser = argparse.ArgumentParser(description='Test inference using tf lite models')
 parser.add_argument('--model', action='store', type=str, default='vox', nargs=1, dest='model', help='model name')
-parser.add_argument('--source_image', action='store', dest='source_image', type=str, nargs=1, default='source.png', help='source image path')
-parser.add_argument('--driving_video', action='store', dest='driving_video', type=str, nargs=1, default='driving.mp4', help='driving video path')
+parser.add_argument('--source_image', action='store', dest='source_image', type=str, nargs=1, default='example/source.png', help='source image path')
+parser.add_argument('--driving_video', action='store', dest='driving_video', type=str, nargs=1, default='example/driving.mp4', help='driving video path')
 parser.add_argument('--output', action='store', type=str, default='output', nargs=1, dest='output', help='model name')
 parser.add_argument('--relative',dest='relative', action='store_true')
 parser.add_argument('--adapt',dest='adapt_movement_scale', action='store_true')

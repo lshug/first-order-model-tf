@@ -16,12 +16,11 @@ One thing I didn't implement from the original is the find_best_frame option, wh
 
 ## Bragging section
 
-Boy, was making this thing work with the orignal's checkpoints with tf lite and with >1 batches a journey. Some stuff I had to do to achieve that:
+Boy, was making this thing work with the orignal's checkpoints with tf lite and with >1 frame batches a journey. Some stuff I had to do to achieve that:
 
  * Translate the internals of pytorch's bilinear interpolation op into tf code
  * Same with nearest-interpolation
  * Same with F.grid_sample
- * Same with AntiAliasInterpolation2d (though this one was way easier than the previous three)
  * Implement a static in-graph calculation of the area of a 2D convex hull given the number of points (for processing kps in-graph; original uses scipy.spatial, which itself uses qhull, and I wanted everything to be handled in-graph so that the three tf lite models would be able to handle the full inference pipeline from the source image and the driving video all the way to the inferred video).
  * Translate numpy-like indexings into equivalent tf.grid_sample calls.
  * Translate all the weird little constructs of the original into keras layers (all the stuff used in the dense motion network module in particular made me cry a few times).
