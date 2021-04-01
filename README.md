@@ -29,4 +29,4 @@ Boy, was making this thing work with the orignal's checkpoints with tf lite and 
  * Do some seriously complicated math to derive equivalent sequences of tensor reshapes and transpositions.
  * Some other stuff I barely remember.
 
-In the end, it actually turned out a little faster than the original, at least when used without . Kudos to me
+In the end, it actually turned out a little faster than the original. Kudos to me.
