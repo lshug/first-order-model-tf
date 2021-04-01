@@ -1,6 +1,6 @@
 # first-order-model-tf
-Tensorflow port of first-order model. TF Lite compatible, supports the originals' weights and in-graph kp processing, but inference only (no training).
-
+Tensorflow port of first-order model. TF Lite compatible, supports the original's checkpoints and implements in-graph kp processing, but inference only (no training). 
+ 
 Original pytorch version can be found at [AliaksandrSiarohin/first-order-model](https://github.com/AliaksandrSiarohin/first-order-model). Copy the checkpoint tars into the checkpoint folder. If you intend to run the fashion-trained model, be sure to rename the checkpoint file for that model from fashion.pth.tar to fashion-cpk.pth.tar (the original filename for that dataset doesn't fit into the naming scheme for others for some rason, and that messes up the load process). To generate saved_models and lite models run build.py. After that, you can run inference using saved_models with test.py and using tf lite with testlite.py (take a peek inside for the CL arguments). Alternatively, you can run inference directly using run.py. 
 
 ## Inference details
