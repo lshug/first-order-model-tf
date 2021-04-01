@@ -30,3 +30,6 @@ Boy, was making this thing work with the orignal's checkpoints with tf lite and 
  * Some other stuff I barely remember.
 
 In the end, it actually turned out a little faster than the original. Kudos to me.
+
+### Attribution
+[first-order-model](https://github.com/AliaksandrSiarohin/first-order-model) by [AliaksandrSiarohin](https://github.com/AliaksandrSiarohin), used under [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) / Ported to Tensorflow
