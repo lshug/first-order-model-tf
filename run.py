@@ -33,7 +33,7 @@ reader.close()
 driving_video = imageio.mimread(parser.driving_video, memtest=False)
 source_image = resize(source_image, (256, 256))[..., :num_channels][None].astype('float32')
 source = source_image.astype(np.float32)
-driving_video = [resize(frame, (256, 256))[..., :num_channels] for frame in driving_video][0:len(driving_video) if parser.frames==0 else parser.frames]
+driving_video = [resize(frame, (256, 256))[..., :num_channels] for frame in driving_video][0:len(driving_video) if parser.frames==0 else 0:parser.frames]
 frames = np.array(driving_video)[np.newaxis].astype(np.float32)[0]
 
 
