@@ -6,7 +6,7 @@ from skimage import img_as_ubyte
 from tqdm import tqdm
 from animate import animate
 
-parser = argparse.ArgumentParser(description='Build saved_models and tflites from checkpoints and configs.')
+parser = argparse.ArgumentParser(description='Run inference')
 parser.add_argument('--model', action='store', type=str, default='vox', nargs=1, dest='model', help='model name')
 parser.add_argument('--source_image', action='store', dest='source_image', type=str, nargs=1, default='source.png', help='source image path')
 parser.add_argument('--driving_video', action='store', dest='driving_video', type=str, nargs=1, default='driving.mp4', help='driving video path')
@@ -37,6 +37,6 @@ driving_video = [resize(frame, (256, 256))[..., :num_channels] for frame in driv
 frames = np.array(driving_video)[np.newaxis].astype(np.float32)[0]
 
 
-predictions = animate(source_image, frames,generator, kp_detector, process_kp_driving, 4, False, False)
+predictions = animate(source_image, frames,generator, kp_detector, process_kp_driving, 4, parser.relative, parser.adapt_movement_scale)
 imageio.mimsave(parser.output, [img_as_ubyte(frame) for frame in predictions], fps=fps)
 print('Done.') 
