@@ -1,13 +1,13 @@
 # first-order-model-tf
-Tensorflow port of first-order model. TF Lite compatible, supports the originals' weights and in-graph kp processing, but inference only (no training).
-
+Tensorflow port of first-order model. TF Lite compatible, supports the original's checkpoints and implements in-graph kp processing, but inference only (no training). 
+ 
 Original pytorch version can be found at [AliaksandrSiarohin/first-order-model](https://github.com/AliaksandrSiarohin/first-order-model). Copy the checkpoint tars into the checkpoint folder. If you intend to run the fashion-trained model, be sure to rename the checkpoint file for that model from fashion.pth.tar to fashion-cpk.pth.tar (the original filename for that dataset doesn't fit into the naming scheme for others for some rason, and that messes up the load process). To generate saved_models and lite models run build.py. After that, you can run inference using saved_models with test.py and using tf lite with testlite.py (take a peek inside for the CL arguments). Alternatively, you can run inference directly using run.py. 
 
 ## Inference details
 
  * First, the kps for the source image are detected through the kp_detector model.
  * Then, for each batch of driving video frames, kps are detected using the kp_detector model.
- * Processing of the resultant driving video frame kps is done using process_kp_driving model.
+ * Processing of the resultant driving video frame kps is done using process_kp_driving model (with source image and video kps, and boolean parameters *relative* and *adapt_movement_scale* as inputs).
  * Finally, for each batch of driving video frame kps, the generator model is used (with source image, source image kps, and the video frame batch's kps as inputs) to generate the outputs.
  
 For more details, take a look inside animate.py or the generated tensorboard files in ./log.
@@ -30,3 +30,6 @@ Boy, was making this thing work with the orignal's checkpoints with tf lite and 
  * Some other stuff I barely remember.
 
 In the end, it actually turned out a little faster than the original. Kudos to me.
+
+### Attribution
+[first-order-model](https://github.com/AliaksandrSiarohin/first-order-model) by [AliaksandrSiarohin](https://github.com/AliaksandrSiarohin), used under [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) / Ported to Tensorflow
