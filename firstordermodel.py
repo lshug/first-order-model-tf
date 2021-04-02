@@ -319,6 +319,10 @@ class GridSample(layers.Layer):
         super(GridSample,self).__init__(**kwargs)
     
     def call(self, data):
+        return self._grid_sample(data)
+    
+    @tf.autograph.experimental.do_not_convert
+    def _grid_sample(self, data):
         img = data[0]
         grid = data[1]
         
@@ -326,8 +330,8 @@ class GridSample(layers.Layer):
         iH, iW = img.shape[1], img.shape[2]
         
         #extract x,y from grid
-        x = tf.expand_dims(grid[...,0],3)
-        y = tf.expand_dims(grid[...,1],3)
+        x = tf.expand_dims(grid[:,:,:,0],3)
+        y = tf.expand_dims(grid[:,:,:,1],3)
         
         #ComputeLocationBase
         x = (x+1)*(W/2) - 0.5
