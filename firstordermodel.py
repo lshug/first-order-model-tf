@@ -3,7 +3,6 @@ from tensorflow import keras
 from tensorflow.keras import backend as K
 from tensorflow.keras import layers
 
-
 class AntiAliasInterpolation2d(layers.Layer):
     def __init__(self, channels, scale, **kwargs):
         sigma = (1 / scale - 1) / 2
@@ -91,18 +90,18 @@ class GaussianToKpTail(layers.Layer):
         heatmap2 = tf.transpose(heatmap, (0, 3, 1, 2))
         heatmap2 = tf.expand_dims(heatmap2, 4)
         heatmap2 = tf.tile(heatmap2, (1, 1, 1, 1, 2))
-        grid = self.grid
-        grid = tf.tile(grid, (1, 10, 1, 1, 1))
-        heatmap2 = tf.reshape(heatmap2, (-1, self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2))
-        grid = tf.reshape(grid, (-1, self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2))
-        mult = heatmap2 * grid
+        heatmap2 = tf.reshape(heatmap2, (-1, self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2))        
+        mult = heatmap2 * self.grid
         mult = tf.reshape(mult, (-1, self.num_kp, self.spatial_size[0], self.spatial_size[1], 2))
         value = tf.reduce_sum(mult, (2, 3))
         # return value, heatmap
         return value
 
     def build(self, input_shape):
-        self.grid = make_coordinate_grid(self.spatial_size, "float32")[None][None]
+        grid = make_coordinate_grid(self.spatial_size, "float32")[None][None]
+        grid = tf.tile(grid, (1, self.num_kp, 1, 1, 1))
+        grid = tf.reshape(grid, (-1, self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2))
+        self.grid = grid
         super(GaussianToKpTail, self).build(input_shape)
 
     def compute_output_shape(self, input_shape):
@@ -110,7 +109,7 @@ class GaussianToKpTail(layers.Layer):
 
     def get_config(self):
         config = super(GaussianToKpTail, self).get_config()
-        config.update({"temperature": self.temperature})
+        config.update({"temperature": self.temperature, "spatial_size":self.spatial_size, "num_kp":self.num_kp})
         return config
 
 
@@ -188,19 +187,18 @@ class KpToGaussian(layers.Layer):
         kp_variance = tf.cast(0.01, "float32")
         grid = self.grid  # HW2
         shape = (1, 1, self.spatial_size[0], self.spatial_size[1], 2)
-        grid = tf.tile(grid, (1, 10, 1, 1, 1))  # B,10,256,256,2
         mean = tf.expand_dims(tf.expand_dims(mean, 2), 2)  # B 10 1 1 2
         mean_sub = grid - mean
         mean_sub = layers.Reshape((self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2))(mean_sub)
-        # mean_sub = tf.reshape(mean_sub, (-1, self.num_kp*self.spatial_size[0]*self.spatial_size[1], 2))
-        # mean_sub = tf.ensure_shape(mean_sub, (None, self.num_kp*self.spatial_size[0]*self.spatial_size[1], 2))
         mean_sub = tf.multiply(mean_sub, mean_sub)
         mean_sub = tf.reshape(mean_sub, (-1, self.num_kp, self.spatial_size[0], self.spatial_size[1], 2))
         out = tf.math.exp(-0.5 * tf.reduce_sum(mean_sub, -1) / kp_variance)
         return out
 
     def build(self, input_shape):
-        self.grid = make_coordinate_grid(self.spatial_size, "float32")[None][None]
+        grid = make_coordinate_grid(self.spatial_size, "float32")[None][None]
+        grid = tf.tile(grid, (1, self.num_kp, 1, 1, 1))
+        self.grid = grid
         super(KpToGaussian, self).build(input_shape)
 
     def compute_output_shape(self, input_shape):
@@ -218,17 +216,12 @@ class Interpolate(layers.Layer):
         super(Interpolate, self).__init__(**kwargs)
 
     def build(self, input_shape):
-        super(Interpolate, self).build(input_shape)
-
-    def call(self, img):
-        scale_factor = self.scale_factor
-        y_max = tf.floor(img.shape[1] * scale_factor[0])
-        x_max = tf.floor(img.shape[2] * scale_factor[1])
-        x_scale = img.shape[2] / x_max
-        y_scale = img.shape[1] / y_max
-        N, H, W = tf.shape(img)[0], img.shape[1], img.shape[2]
+        H, W = input_shape[1], input_shape[2]
         H_f, W_f = tf.cast(H, "float32"), tf.cast(W, "float32")
-
+        y_max = tf.floor(input_shape[1] * self.scale_factor[0])
+        x_max = tf.floor(input_shape[2] * self.scale_factor[1])
+        x_scale = input_shape[2] / x_max
+        y_scale = input_shape[1] / y_max
         grid = tf.cast(tf.transpose(tf.stack(tf.meshgrid(tf.range(x_max), tf.range(y_max))[::-1]), (1, 2, 0)), "float32")
         grid_shape = (1, *grid.shape)
         flat_grid = tf.reshape(grid, (-1, 2))
@@ -236,7 +229,16 @@ class Interpolate(layers.Layer):
         flat_grid = tf.transpose(flat_grid, (1, 0))
         grid = tf.reshape(flat_grid, grid_shape)
         grid = tf.cast(grid, "int32")
+        self.grid = grid
+        super(Interpolate, self).build(input_shape)
 
+    def call(self, img):
+        scale_factor = self.scale_factor
+        y_max = tf.floor(img.shape[1] * scale_factor[0])
+        x_max = tf.floor(img.shape[2] * scale_factor[1])        
+        N = tf.shape(img)[0]
+        grid = self.grid
+        
         batch_range = tf.range(N)
         g = tf.cast(tf.expand_dims(tf.tile(tf.reshape(batch_range, (-1, 1, 1)), (1, y_max, x_max)), 3), "int32")
         grid = tf.tile(tf.reshape(grid, (1, y_max, x_max, 2)), (N, 1, 1, 1))
@@ -261,17 +263,15 @@ class BilinearInterpolate(layers.Layer):
         super(BilinearInterpolate, self).__init__(**kwargs)
 
     def build(self, input_shape):
-        super(BilinearInterpolate, self).build(input_shape)
-
-    def call(self, img):
         size = self.size
         x_scale = tf.cast(img.shape[2] / size[1], "float32")
         y_scale = tf.cast(img.shape[1] / size[0], "float32")
-        N, H, W = tf.shape(img)[0], img.shape[1], img.shape[2]
-        H_f, W_f = tf.cast(H, "float32"), tf.cast(W, "float32")
+        H, W = img.shape[1], img.shape[2]
         zeros = tf.zeros((size[0], size[1]), dtype="int32")
         ones = tf.expand_dims(tf.ones((size[0], size[1]), dtype="int32"), 2)
-
+        self.zeros = zeros
+        self.ones = ones
+        
         grid = tf.cast(tf.transpose(tf.stack(tf.meshgrid(tf.range(size[1]), tf.range(size[0]))[::-1]), (1, 2, 0)), "float32")
         grid_shape = (size[1], size[0], 2)
         flat_grid = tf.reshape(grid, (-1, 2))
@@ -280,7 +280,18 @@ class BilinearInterpolate(layers.Layer):
         flat_grid = tf.math.maximum(flat_grid, 0)
         grid = tf.reshape(flat_grid, grid_shape)
         grid_int = tf.cast(tf.floor(grid), "int32")
+        self.grid = grid
+        self.grid_int = grid_int
+        super(BilinearInterpolate, self).build(input_shape)
 
+    def call(self, img):
+        size = self.size
+        N, H, W = tf.shape(img)[0], img.shape[1], img.shape[2]
+        zeros = self.zeros
+        ones = self.ones
+        grid = self.grid
+        grid_int = self.grid_int
+        
         y = tf.cast(tf.transpose(tf.stack([tf.cast(grid_int[..., 0] < W - 1, "int32"), zeros]), (1, 2, 0)), "int32")
         x = tf.cast(tf.transpose(tf.stack([zeros, tf.cast(grid_int[..., 1] < H - 1, "int32")]), (1, 2, 0)), "int32")
         batch_range = tf.range(N)
