@@ -40,11 +40,11 @@ class AntiAliasInterpolation2d(layers.Layer):
 
     def call(self, x):
         out = layers.ZeroPadding2D((self.ka,self.kb))(x)
-        outputs = []
+        outputs = [0] * self.groups
         for i in range(self.groups):
-            k = tf.expand_dims(self.kernel[:,:,:,i],3)
-            im = tf.expand_dims(out[:,:,:,i],3)
-            outputs.append(tf.nn.conv2d(im,k,strides=(1,1,1,1),padding='VALID'))                                
+            k = tf.expand_dims(self.kernel[...,i],3)
+            im = tf.expand_dims(out[...,i],3)
+            outputs[i] = tf.nn.conv2d(im,k,strides=(1,1,1,1),padding='VALID')
         out = tf.concat(outputs,3)
         out=Interpolate((self.scale,self.scale))(out)
         return out
@@ -57,7 +57,7 @@ class AntiAliasInterpolation2d(layers.Layer):
         config.update({'kernel_size':self.kernel_size,'groups':self.groups,'ka':self.ka,'kb':self.kb,'scale':self.scale})
         return config
 
-def make_coordinate_grid(spatial_size,dtype):
+def make_coordinate_grid(spatial_size, dtype):
     h,w = spatial_size
     h = tf.cast(h,dtype)
     w = tf.cast(w, dtype)
@@ -71,25 +71,35 @@ def make_coordinate_grid(spatial_size,dtype):
     return meshed
     
 class GaussianToKpTail(layers.Layer):
-    def __init__(self,temperature=0.1,**kwargs):
+    def __init__(self, temperature=0.1, spatial_size=(58,58), num_kp=10, **kwargs):
         self.temperature = temperature
-        super(GaussianToKpTail,self).__init__(**kwargs)
+        self.spatial_size = spatial_size
+        self.num_kp = num_kp
+        super(GaussianToKpTail, self).__init__(**kwargs)
     
     def call(self, x):
-        out = tf.reshape(x,(-1,x.shape[1]*x.shape[2],x.shape[3])) #B (H*W) 3
+        x = tf.cast(x, 'float32')
+        out = tf.reshape(x,(-1,self.spatial_size[0]*self.spatial_size[1],self.num_kp)) #B (H*W) 3
         out = keras.activations.softmax(out/self.temperature, axis=1) #0.1 is temperature
-        heatmap = tf.reshape(out,(-1,x.shape[1],x.shape[2],x.shape[3]))
+        heatmap = tf.reshape(out,(-1,self.spatial_size[0],self.spatial_size[1],self.num_kp))
         heatmap2 = tf.transpose(heatmap,(0,3,1,2))
         heatmap2 = tf.expand_dims(heatmap2,4)
-        grid = tf.expand_dims(tf.expand_dims(make_coordinate_grid((x.shape[1],x.shape[2]),heatmap2.dtype),0),0) #further opt is possible but probably unnecessary
-        value = tf.reduce_sum((heatmap2*grid),(2,3))
+        heatmap2 = tf.tile(heatmap2, (1,1,1,1,2))
+        grid = self.grid
+        grid = tf.tile(grid, (1,10,1,1,1))
+        heatmap2 = tf.reshape(heatmap2, (-1,self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2))
+        grid = tf.reshape(grid, (-1,self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2))
+        mult = heatmap2 * grid
+        mult = tf.reshape(mult, (-1, self.num_kp, self.spatial_size[0], self.spatial_size[1], 2))
+        value = tf.reduce_sum(mult,(2,3))
         #return value, heatmap
         return value
         
     def build(self, input_shape):
+        self.grid = make_coordinate_grid(self.spatial_size, 'float32')[None][None]
         super(GaussianToKpTail, self).build(input_shape)
     
-    def compute_output_shape(self,input_shape):
+    def compute_output_shape(self, input_shape):
         return (input_shape[0],input_shape[3],2)
         
     def get_config(self):
@@ -106,16 +116,18 @@ class SparseMotion(layers.Layer):
     def call(self, x):
         bs = tf.shape(x[0])[0]
         h, w = self.spatial_size
-        identity_grid = make_coordinate_grid((h,w),x[0].dtype) #hw2
-        identity_grid = tf.expand_dims(tf.expand_dims(identity_grid,0),0) #1 1 h w 2
+        identity_grid = self.grid #hw2
+        #(lambda l: [l,tf.io.write_file('../../spmx.npy',tf.io.serialize_tensor(l))][0])(x)
         coordinate_grid = identity_grid - tf.expand_dims(tf.expand_dims(x[0],2),2) #b 10 1 1 2
-        
-        driving_to_source = coordinate_grid + tf.tile(tf.reshape(x[1], (-1,self.num_kp,1,1,2)),(bs,1,h,w,1))  #if multiple works, coordinate_grid will be b 10 1 1 2 and the right part will be 1 10 1 1 2
+        c = x[1] * -1.0
+        mult = tf.tile(tf.reshape(c, (-1,self.num_kp,1,1,2)),(bs,1,h,w,1))
+        driving_to_source = coordinate_grid - mult  #if multiple works, coordinate_grid will be b 10 1 1 2 and the right part will be 1 10 1 1 2
         identity_grid = tf.tile(identity_grid,(bs,1,1,1,1))
         sparse_motions = tf.concat([identity_grid,driving_to_source],1)
         return sparse_motions
     
     def build(self, input_shape):
+        self.grid = make_coordinate_grid(self.spatial_size, 'float32')[None][None]
         super(SparseMotion, self).build(input_shape)
     
     def compute_output_shape(self,input_shape):
@@ -165,18 +177,23 @@ class KpToGaussian(layers.Layer):
         super(KpToGaussian,self).__init__(**kwargs)
     
     def call(self, x):
-        mean = x
-        kp_variance = 0.01
-        grid = make_coordinate_grid(self.spatial_size,mean.dtype) #HW2
+        mean = tf.cast(x, 'float32')
+        kp_variance = tf.cast(0.01, 'float32')
+        grid = self.grid #HW2
         shape = (1,1,self.spatial_size[0],self.spatial_size[1],2) 
-        grid = tf.expand_dims(tf.expand_dims(grid,0),0)  ##1,1,256,256,2
-        grid = tf.tile(grid, (tf.shape(x)[0],10,1,1,1)) #B,10,256,256,2
+        grid = tf.tile(grid, (1,10,1,1,1)) #B,10,256,256,2
         mean = tf.expand_dims(tf.expand_dims(mean,2),2) #B 10 1 1 2
-        mean_sub = (grid - mean)
-        out = tf.exp(-0.5 * tf.reduce_sum((mean_sub ** 2),-1)/ kp_variance)
+        mean_sub = grid - mean
+        mean_sub = layers.Reshape((self.num_kp*self.spatial_size[0]*self.spatial_size[1], 2))(mean_sub)
+        #mean_sub = tf.reshape(mean_sub, (-1, self.num_kp*self.spatial_size[0]*self.spatial_size[1], 2))
+        #mean_sub = tf.ensure_shape(mean_sub, (None, self.num_kp*self.spatial_size[0]*self.spatial_size[1], 2))
+        mean_sub =  tf.multiply(mean_sub, mean_sub)
+        mean_sub = tf.reshape(mean_sub, (-1, self.num_kp, self.spatial_size[0], self.spatial_size[1], 2))
+        out = tf.math.exp(-0.5 * tf.reduce_sum(mean_sub, -1) / kp_variance)
         return out
     
     def build(self, input_shape):
+        self.grid = make_coordinate_grid(self.spatial_size, 'float32')[None][None]
         super(KpToGaussian, self).build(input_shape)
     
     def compute_output_shape(self,input_shape):
@@ -207,7 +224,7 @@ class Interpolate(layers.Layer):
         grid = tf.cast(tf.transpose(tf.stack(tf.meshgrid(tf.range(x_max),tf.range(y_max))[::-1]),(1,2,0)),'float32')
         grid_shape = (1,*grid.shape)
         flat_grid = tf.reshape(grid,(-1,2))
-        flat_grid = tf.stack(([(tf.math.minimum(tf.floor((flat_grid[:,0])* y_scale), H_f - 1)),tf.math.minimum(tf.floor((flat_grid[:,1]) * x_scale), W_f - 1)]))
+        flat_grid = tf.stack(([(tf.math.minimum(tf.floor((flat_grid[...,0])* y_scale), H_f - 1)),tf.math.minimum(tf.floor((flat_grid[...,1]) * x_scale), W_f - 1)]))
         flat_grid = tf.transpose(flat_grid,(1,0))
         grid = tf.reshape(flat_grid,grid_shape)
         grid = tf.cast(grid,'int32')
@@ -305,8 +322,8 @@ class GridSample(layers.Layer):
         iH, iW = img.shape[1], img.shape[2]
         
         #extract x,y from grid
-        x = tf.expand_dims(grid[:,:,:,0],3)
-        y = tf.expand_dims(grid[:,:,:,1],3)
+        x = tf.expand_dims(grid[...,0],3)
+        y = tf.expand_dims(grid[...,1],3)
         
         #ComputeLocationBase
         x = (x+1)*(W/2) - 0.5
@@ -481,11 +498,17 @@ def dense_motion(source,kp_driving,kp_source,shape,num_channels=3,num_kp=10,esti
     
     
     mask = layers.Lambda(lambda l: K.expand_dims(l,2))(mask)
-    
+
     
     
     sparse_motion = layers.Permute((1, 4, 2, 3))(sparse_motion)
-    deformation = layers.Multiply()([sparse_motion,mask])
+    spatial = sparse_motion.shape[3], sparse_motion.shape[4]
+    
+    sparse_motion = layers.Reshape((num_kp+1, 2, sparse_motion.shape[3]*sparse_motion.shape[4]))(sparse_motion)
+    mask = layers.Reshape((num_kp+1, 1, mask.shape[3]*mask.shape[4]))(mask)
+    
+    deformation = layers.Multiply()([sparse_motion, mask])
+    deformation = layers.Reshape((num_kp+1, 2, spatial[0], spatial[1]))(deformation)
     deformation = layers.Lambda(lambda l: K.sum(l,axis=1))(deformation)
     deformation = layers.Permute((2,3,1))(deformation)
     
@@ -517,7 +540,7 @@ def build_kp_detector_base(checkpoint='./checkpoint/vox-cpk.pth.tar',num_channel
     out = layers.Conv2D(num_kp,kernel_size=(7, 7))(x)
     #Heatmap, gaussian
     #out,heatmap = GaussianToKpTail(temperature,name='output')(out)
-    out = GaussianToKpTail(temperature,name='output')(out)
+    out = GaussianToKpTail(temperature,(out.shape[1],out.shape[2]),num_kp,name='output')(out)
     #Jacobian
     #num_jacobian_map = 1 if single_jacobian_map else num_kp
     #jacobian_map = Conv2D(4*num_jacobian_map, kernel_size=(7,7),name='jacmap')(feature_map)
@@ -580,8 +603,7 @@ def build_generator_base(checkpoint='./checkpoint/vox-cpk.pth.tar', num_kp=10, n
     for i in range(num_down_blocks):
         x = DownBlock2d(x, min(max_features, block_expansion * (2 ** (i+1))),name='down_blocks'+str(i))
         
-    
-    deformation,occlusion_map = dense_motion(inp,driving_kp,source_kp,(256,256),num_channels=num_channels,num_kp=num_kp,estimate_jacobian=estimate_jacobian,**dense_motion_params)
+    deformation, occlusion_map = dense_motion(inp,driving_kp,source_kp,(256,256),num_channels=num_channels,num_kp=num_kp,estimate_jacobian=estimate_jacobian,**dense_motion_params)
     
     if deformation.shape[1] != x.shape[1] or deformation.shape[2] != x.shape[2]:
         deformation = BilinearInterpolate((x.shape[1],x.shape[2]))(deformation)
@@ -589,7 +611,7 @@ def build_generator_base(checkpoint='./checkpoint/vox-cpk.pth.tar', num_kp=10, n
         occlusion_map = BilinearInterpolate((x.shape[1],x.shape[2]))(occlusion_map)
     x = layers.Lambda(lambda l: tf.tile(l[0],(tf.shape(l[1])[0],1,1,1)),name='deformation_tile')([x,deformation])
     x = GridSample()([x,deformation]) 
-    x = layers.Multiply()([x,occlusion_map])
+    x = layers.Multiply(name='mult')([x,occlusion_map])
     for i in range(num_bottleneck_blocks):
         x = ResBlock2d(x, min(max_features, block_expansion * (2 ** num_down_blocks)),name='bottleneckr'+str(i))
         
@@ -598,7 +620,6 @@ def build_generator_base(checkpoint='./checkpoint/vox-cpk.pth.tar', num_kp=10, n
     
     x = layers.Conv2D(num_channels, kernel_size=(7, 7),padding='same',name='final')(x)
     out = layers.Activation('sigmoid',name='output')(x)
-    
     model = keras.Model([inp,driving_kp,source_kp],out)
     model.trainable = False
     model.compile('sgd','mse')
@@ -643,7 +664,6 @@ def build_generator(checkpoint='./checkpoint/vox-cpk.pth.tar', num_kp=10, num_ch
     return Generator(checkpoint=checkpoint,num_kp=num_kp,num_channels=num_channels,estimate_jacobian=estimate_jacobian,
                 block_expansion=block_expansion,max_features=max_features,num_down_blocks=num_down_blocks,num_bottleneck_blocks=num_bottleneck_blocks,estimate_occlusion_map=estimate_occlusion_map,dense_motion_params=dense_motion_params)
 
-    
 class ProcessKpDriving(tf.Module):
     def __init__(self, num_kp):
         self.num_kp = num_kp
@@ -663,10 +683,11 @@ class ProcessKpDriving(tf.Module):
         kp_new = kp_value_diff + kp_source
         kp_driving = tf.where((relative & (ones>0)),kp_new,kp_driving)[0]
         return kp_driving
-        
+    
+    @tf.autograph.experimental.do_not_convert
     def convex_hull_area(self,X):
         num_kp = self.num_kp
-        O = X*0
+        O = X * 0
         L = tf.shape(X)[0]
         n = tf.cast(num_kp,tf.int32)
         l = tf.cast(tf.argmin(X[:,:,0],1),tf.int32)
@@ -676,39 +697,26 @@ class ProcessKpDriving(tf.Module):
             pt = tf.transpose(tf.stack([rng,p]),(1,0))
             ind = tf.expand_dims(tf.gather_nd(X,pt),1)
             O = tf.concat([O[:,0:i],ind,O[:,i+1:n]],1)
-            q = (p+1)%n
-            qt = tf.transpose(tf.stack([rng,q]),(1,0))
+            q = (p + 1) % n
+            q.set_shape(rng.shape)
+            qt = tf.transpose(tf.stack([rng, q]),(1,0))
             for j in range(num_kp):
-                b = (((tf.gather_nd(X,qt)[:,1]-tf.gather_nd(X,pt)[:,1])  *  (X[:,tf.cast(j,tf.int32),0] - tf.gather_nd(X,qt)[:,0])  - (tf.gather_nd(X,qt)[:,0]-tf.gather_nd(X,pt)[:,0]) * (X[:,tf.cast(j,tf.int32),1]-tf.gather_nd(X,qt)[:,1])) < 0)
+                p1 = (tf.gather_nd(X,qt)[:,1]-tf.gather_nd(X,pt)[:,1])
+                p2 = (X[:,tf.cast(j,tf.int32),0] - tf.gather_nd(X,qt)[:,0])
+                p3 = (tf.gather_nd(X,qt)[:,0]-tf.gather_nd(X,pt)[:,0])
+                p4 = (X[:,tf.cast(j,tf.int32),1]-tf.gather_nd(X,qt)[:,1])
+                bbase = p1 * p2 - p3 * p4
+                b = bbase < 0
                 q = tf.where(b,tf.repeat(tf.cast(j,tf.int32),L),q)
+                q.set_shape(rng.shape)
                 qt = tf.transpose(tf.stack([rng,q]),(1,0))
             p=tf.where((((q-l)<1) & ((q-l)>-1)), p, q)        
-        j = tf.transpose(tf.concat([tf.expand_dims(O[:,:,1][:,1],1),O[:,:,1][:,2:],tf.expand_dims(O[:,:,1][:,0],1)],1),(1,0))
-        k = tf.transpose(tf.concat([tf.expand_dims(O[:,:,0][:,1],1),O[:,:,0][:,2:],tf.expand_dims(O[:,:,0][:,0],1)],1),(1,0))
-        inc = (tf.eye(L)*tf.tensordot(O[:,:,0],j,1))@tf.ones((L,1)) - (tf.eye(L)*tf.tensordot(O[:,:,1],k,1))@tf.ones((L,1))
-        area = 0.5*tf.math.abs(inc)[0]
+        j = tf.transpose(tf.concat([tf.expand_dims(O[:,1][:,1],1),O[:,1][:,2:],tf.expand_dims(O[:,1][:,0],1)],1),(1,0))
+        k = tf.transpose(tf.concat([tf.expand_dims(O[:,0][:,1],1),O[:,0][:,2:],tf.expand_dims(O[:,0][:,0],1)],1),(1,0))
+        inc = (tf.eye(L)*tf.tensordot(O[:,0],j,1))@tf.ones((L,1)) - (tf.eye(L)*tf.tensordot(O[:,1],k,1))@tf.ones((L,1))
+        area = 0.5 * tf.math.abs(inc)[0]
         return area
     
-    
-  #def convex_hull_area(self,X):
-    #    num_kp = self.num_kp
-    #    O = X*0
-    #    n = tf.cast(num_kp,tf.int32)
-    #    l = tf.cast(tf.argmin(X[:,0],0),tf.int32)
-    #    p = tf.cast(l,tf.int32)
-    #    for i in range(num_kp):
-    #        O = tf.concat([O[0:i],X[p,:][None],O[i+1:n]],0)
-    #        q=tf.cast((p+1) % n,tf.int32)
-    #        for j in range(num_kp):
-    #            b = (((X[q][1]-X[p][1])  *  (X[j][0] - X[q][0])  - (X[q][0]-X[p][0]) * (X[j][1]-X[q][1])) < 0)
-    #            q = tf.where(b, tf.cast(j,tf.int32), q)
-    #        p=tf.where((((q-l)<1) & ((q-l)>-1)),p,q)
-    #    j = tf.concat([O[:,1][1][None],O[:,1][2:],O[:,1][0][None]],0)
-    #    k = tf.concat([O[:,0][1][None],O[:,0][2:],O[:,0][0][None]],0)
-    #    inc = tf.tensordot(O[:,0],j,1)-tf.tensordot(O[:,1],k,1)
-    #    area = 0.5*tf.math.abs(inc)[None]
-    #    return area
 
-
-def build_process_kp_driving(num_kp):
+def build_process_kp_driving(num_kp=10):
     return ProcessKpDriving(num_kp)

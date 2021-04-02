@@ -41,9 +41,9 @@ def kp_detector(img):
     return kp_detector_interpreter.get_tensor(kp_detector_output_index)
     
 generator_interpreter = tf.lite.Interpreter(model_path='tflite/'+parser.model+'/generator.tflite')
-source_image_index = generator_interpreter.get_input_details()[2]['index']
-generator_kp_driving_index = generator_interpreter.get_input_details()[0]['index']
-generator_kp_source_index = generator_interpreter.get_input_details()[1]['index']
+source_image_index = [x for x in generator_interpreter.get_input_details() if 'source_image' in x['name']][0]['index']
+generator_kp_driving_index = [x for x in generator_interpreter.get_input_details() if 'kp_driving' in x['name']][0]['index']
+generator_kp_source_index = [x for x in generator_interpreter.get_input_details() if 'kp_source' in x['name']][0]['index']
 generator_output_index = generator_interpreter.get_output_details()[0]['index']
 def generator(inputs):
     generator_interpreter.resize_tensor_input(generator_kp_driving_index,inputs[1].shape)
@@ -55,10 +55,10 @@ def generator(inputs):
     return generator_interpreter.get_tensor(generator_output_index)
 
 process_kp_driving_interpreter = tf.lite.Interpreter(model_path='tflite/'+parser.model+'/process_kp_driving.tflite')
-process_kp_driving_kp_driving_index = process_kp_driving_interpreter.get_input_details()[1]['index']
-process_kp_driving_kp_source_index = process_kp_driving_interpreter.get_input_details()[2]['index']
-process_kp_driving_relative_index = process_kp_driving_interpreter.get_input_details()[3]['index']
-process_kp_driving_adapt_movement_scale_index = process_kp_driving_interpreter.get_input_details()[0]['index']
+process_kp_driving_kp_driving_index = [x for x in process_kp_driving_interpreter.get_input_details() if 'kp_driving' in x['name']][0]['index']
+process_kp_driving_kp_source_index = [x for x in process_kp_driving_interpreter.get_input_details() if 'kp_source' in x['name']][0]['index']
+process_kp_driving_relative_index = [x for x in process_kp_driving_interpreter.get_input_details() if 'relative' in x['name']][0]['index']
+process_kp_driving_adapt_movement_scale_index = [x for x in process_kp_driving_interpreter.get_input_details() if 'adapt' in x['name']][0]['index']
 process_kp_driving_output_index = process_kp_driving_interpreter.get_output_details()[0]['index']
 def process_kp_driving(kp_driving,kp_source,relative,adapt_movement_scale):
     process_kp_driving_interpreter.resize_tensor_input(process_kp_driving_kp_driving_index,kp_driving.shape)
