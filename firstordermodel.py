@@ -37,15 +37,19 @@ class AntiAliasInterpolation2d(layers.Layer):
         self.kernel = self.add_weight('kernel',kernel.shape,trainable=False)
         self.set_weights([kernel])
         super(AntiAliasInterpolation2d, self).build(input_shape)
-
+    
+    @tf.autograph.experimental.do_not_convert
+    def channel_slice(self, x, i):
+        return x[:,:,:,i]
+    
     def call(self, x):
         out = layers.ZeroPadding2D((self.ka,self.kb))(x)
         outputs = [0] * self.groups
         for i in range(self.groups):
-            k = tf.expand_dims(self.kernel[...,i],3)
-            im = tf.expand_dims(out[...,i],3)
+            k = tf.expand_dims(self.channel_slice(self.kernel, i), 3)
+            im = tf.expand_dims(self.channel_slice(out, i), 3)
             outputs[i] = tf.nn.conv2d(im,k,strides=(1,1,1,1),padding='VALID')
-        out = tf.concat(outputs,3)
+        out = tf.concat(outputs, 3)
         out=Interpolate((self.scale,self.scale))(out)
         return out
 
