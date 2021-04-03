@@ -160,11 +160,12 @@ class Deform(layers.Layer):
         source_repeat = tf.reshape(source_repeat, (-1, h, w, self.channels))
         # sparse_motions = tf.reshape(x[1], (bs * (self.num_kp+1), h, w, 2))
         sparse_motions = tf.reshape(x[1], (-1, h, w, 2))
-        sparse_deformed = GridSample()([source_repeat, sparse_motions])
+        sparse_deformed = self.grid_sample([source_repeat, sparse_motions])
         sparse_deformed = tf.reshape(sparse_deformed, (-1, self.num_kp + 1, h, w, self.channels))
         return sparse_deformed
 
     def build(self, input_shape):
+        self.grid_sample = GridSample()
         super(Deform, self).build(input_shape)
 
     def compute_output_shape(self, input_shape):
@@ -189,7 +190,7 @@ class KpToGaussian(layers.Layer):
         shape = (1, 1, self.spatial_size[0], self.spatial_size[1], 2)
         mean = tf.expand_dims(tf.expand_dims(mean, 2), 2)  # B 10 1 1 2
         mean_sub = grid - mean
-        mean_sub = layers.Reshape((self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2))(mean_sub)
+        mean_sub = self.reshape(mean_sub)
         mean_sub = tf.multiply(mean_sub, mean_sub)
         mean_sub = tf.reshape(mean_sub, (-1, self.num_kp, self.spatial_size[0], self.spatial_size[1], 2))
         out = tf.math.exp(-0.5 * tf.reduce_sum(mean_sub, -1) / kp_variance)
@@ -199,6 +200,7 @@ class KpToGaussian(layers.Layer):
         grid = make_coordinate_grid(self.spatial_size, "float32")[None][None]
         grid = tf.tile(grid, (1, self.num_kp, 1, 1, 1))
         self.grid = grid
+        self.reshape = layers.Reshape((self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2))
         super(KpToGaussian, self).build(input_shape)
 
     def compute_output_shape(self, input_shape):
