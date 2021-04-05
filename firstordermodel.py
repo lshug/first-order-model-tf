@@ -670,6 +670,7 @@ class KpDetector(tf.Module):
         num_blocks=5,
         estimate_jacobian=True,
         single_jacobian_map=False,
+        **kwargs,
     ):
         self.kp_detector = build_kp_detector_base(
             checkpoint=checkpoint,
@@ -785,6 +786,7 @@ class Generator(tf.Module):
         num_bottleneck_blocks=6,
         estimate_occlusion_map=True,
         dense_motion_params={"block_expansion": 64, "max_features": 1024, "num_blocks": 5, "scale_factor": 0.25},
+        **kwargs,
     ):
         jacobian_number = 1 if single_jacobian_map else num_kp
         self.generator = build_generator_base(
