@@ -29,8 +29,8 @@ num_channels = config["model_params"]["common_params"]["num_channels"]
 num_kp = config["model_params"]["common_params"]["num_kp"]
 kp_detector = build_kp_detector(f"./checkpoint/{parser.model}-cpk.pth.tar", **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"])
 generator_base = build_generator(f"./checkpoint/{parser.model}-cpk.pth.tar", **config["model_params"]["generator_params"], **config["model_params"]["common_params"])
-generator = lambda arr: generator_base(arr[0], arr[1], arr[2])
-process_kp_driving = build_process_kp_driving(config["model_params"]["common_params"]["num_kp"])
+generator = lambda arr: generator_base(arr[0], arr[1], arr[2], arr[3], arr[4])
+process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"])
 
 source_image = imageio.imread(parser.source_image)
 source_image = source_image[..., :num_channels]

@@ -5,10 +5,10 @@ Original pytorch version can be found at [AliaksandrSiarohin/first-order-model](
 
 ## Inference details
 
- * First, the kps for the source image are detected through the kp_detector model.
- * Then, for each batch of driving video frames, kps are detected using the kp_detector model.
- * Processing of the resultant driving video frame kps is done using process_kp_driving model (with source image and video kps, and boolean parameters *relative* and *adapt_movement_scale* as inputs).
- * Finally, for each batch of driving video frame kps, the generator model is used (with source image, source image kps, and the video frame batch's kps as inputs) to generate the outputs.
+ * First, the kps and the jacobian for the source image are detected through the kp_detector model.
+ * Then, for each batch of driving video frames, kps and jacobians are detected using the kp_detector model.
+ * Processing of the resultant driving video frame kps and jacobians is done using process_kp_driving model (with source image and video kps/jacobians, and boolean parameters *use_relative_motion*, *use_relative_jacobian*, and *adapt_movement_scale* as inputs).
+ * Finally, for each batch of driving video frame kps, the generator model is used (with source image, source image kps/jacobian, and the video frame batch's kps/jacobians as inputs) to generate the outputs.
  
 For more details, take a look inside animate.py or the generated tensorboard files in ./log.
  

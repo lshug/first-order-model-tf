@@ -15,20 +15,26 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
     tf.profiler.experimental.start("./log")
 
     # Step 1: get kp_source
-    kp_source = kp_detector(source_image)
+    kp_source, kp_source_jacobian = kp_detector(source_image)
 
     # Step 2: get kp_driving in batches
     kp_driving = []
+    kp_driving_jacobian = []
     for i in tqdm(range(math.floor(l / batch_size))):
         start = i * batch_size
         end = (i + 1) * batch_size
         driving_video_tensor = tf.convert_to_tensor(driving_video[start:end])
-        kp_driving.append(kp_detector(driving_video_tensor))
+        kp_driving_frame_kp, kp_driving_frame_jacobian = kp_detector(driving_video_tensor)
+        kp_driving.append(kp_driving_frame_kp)
+        kp_driving_jacobian.append(kp_driving_frame_jacobian)
     kp_driving = tf.concat(kp_driving, 0)
+    kp_driving_jacobian = tf.concat(kp_driving_jacobian, 0)
     del driving_video
 
     # Step 3: process kp_driving
-    kp_driving = process_kp_driving(kp_driving, kp_source, relative, adapt_movement_scale)
+    kp_driving, kp_driving_jacobian = process_kp_driving(
+        kp_driving, kp_driving_jacobian, kp_driving[0], kp_driving_jacobian[0], kp_source, kp_source_jacobian, relative, relative, adapt_movement_scale
+    )
 
     # Step 4: get predictions in batches
     predictions = []
@@ -36,7 +42,8 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         start = i * batch_size
         end = (i + 1) * batch_size
         kp_driving_tensor = kp_driving[start:end]
-        predictions.append(generator([source_image, kp_driving_tensor, kp_source]))
+        kp_driving_jacobian_tensor = kp_driving_jacobian[start:end]
+        predictions.append(generator([source_image, kp_driving_tensor, kp_driving_jacobian_tensor, kp_source, kp_source_jacobian]))
 
     tf.profiler.experimental.stop()
     return tf.concat(predictions, 0).numpy()
