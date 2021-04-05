@@ -16,7 +16,7 @@ One thing I didn't implement from the original is the find_best_frame option, wh
 
 ## Bragging section
 
-Boy, was making this thing work with the orignal's checkpoints with tf lite and with >1 frame batches a journey. Some stuff I had to do to achieve that:
+Boy, was making this thing work with the original's checkpoints with tf lite and with >1 frame batches a journey. Some stuff I had to do to achieve that:
 
  * Translate the internals of pytorch's bilinear interpolation op into tf code
  * Same with nearest-interpolation
