@@ -13,21 +13,27 @@ parser.add_argument("--driving_video", action="store", dest="driving_video", typ
 parser.add_argument("--output", action="store", type=str, default="example/output", nargs=1, dest="output", help="model name")
 parser.add_argument("--relative", dest="relative", action="store_true")
 parser.add_argument("--adapt", dest="adapt_movement_scale", action="store_true")
+parser.add_argument("--w", dest="w", type=int, default=256)
+parser.add_argument("--h", dest="h", type=int, default=256)
+parser.add_argument("--c", dest="c", type=int, default=3)
+parser.add_argument("--batchsize", dest="batch_size", type=int, default=4, help="batch size")
 parser.add_argument("--frames", dest="frames", type=int, default=-1, help="number of frames to process")
 parser = parser.parse_args()
 
+img_size = (parser.w, parser.h)
+c = parser.c
 
 source_image = imageio.imread(parser.source_image)
-source_image = source_image[..., :3]
+source_image = source_image[..., :c]
 reader = imageio.get_reader(parser.driving_video)
 fps = reader.get_meta_data()["fps"]
 reader.close()
 driving_video = imageio.mimread(parser.driving_video, memtest=False)
-source_image = resize(source_image, (256, 256))[..., :3][None].astype("float32")
+source_image = resize(source_image, img_size)[..., :c][None].astype("float32")
 source = source_image.astype(np.float32)
 if parser.frames != -1:
     driving_video = driving_video[0 : parser.frames]
-driving_video = [resize(frame, (256, 256))[..., :3] for frame in driving_video]
+driving_video = [resize(frame, img_size)[..., :c] for frame in driving_video][0 : len(driving_video) if len(tf.config.list_physical_devices("GPU")) > 0 else 200]
 frames = np.array(driving_video)[np.newaxis].astype(np.float32)[0]
 
 
@@ -52,9 +58,6 @@ generator_kp_driving_jacobian_index = [x for x in generator_interpreter.get_inpu
 generator_kp_source_index = [x for x in generator_interpreter.get_input_details() if "kp_source" in x["name"] and "jacobian" not in x["name"]][0]["index"]
 generator_kp_source_jacobian_index = [x for x in generator_interpreter.get_input_details() if "kp_source_jacobian" in x["name"]][0]["index"]
 generator_output_index = generator_interpreter.get_output_details()[0]["index"]
-# input(generator_interpreter.get_signature_list())
-# generator_runner = generator_interpreter.get_signature_runner()
-
 
 def generator(inputs):
     generator_interpreter.resize_tensor_input(source_image_index, inputs[0].shape)
@@ -105,5 +108,5 @@ def process_kp_driving(
     return process_kp_driving_interpreter.get_tensor(process_kp_driving_output1_index), process_kp_driving_interpreter.get_tensor(process_kp_driving_output2_index)
 
 
-predictions = animate(source_image, frames, generator, kp_detector, process_kp_driving, 4, parser.relative, parser.adapt_movement_scale)
+predictions = animate(source_image, frames, generator, kp_detector, process_kp_driving, parser.batch_size, parser.relative, parser.adapt_movement_scale)
 imageio.mimsave(parser.output + ".tflite.mp4", [img_as_ubyte(frame) for frame in predictions], fps=fps)

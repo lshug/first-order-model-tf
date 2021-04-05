@@ -20,6 +20,7 @@ parser.add_argument(
 )
 parser.add_argument("--adapt", dest="adapt_movement_scale", action="store_true")
 parser.add_argument("--frames", dest="frames", type=int, default=-1, help="number of frames to process")
+parser.add_argument("--batchsize", dest="batch_size", type=int, default=4, help="batch size")
 parser = parser.parse_args()
 
 config_path = f"config/{parser.model}-256.yaml"
@@ -27,8 +28,9 @@ with open(config_path) as f:
     config = yaml.load(f, Loader=yaml.Loader)
 num_channels = config["model_params"]["common_params"]["num_channels"]
 num_kp = config["model_params"]["common_params"]["num_kp"]
-kp_detector = build_kp_detector(f"./checkpoint/{parser.model}-cpk.pth.tar", **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"])
-generator_base = build_generator(f"./checkpoint/{parser.model}-cpk.pth.tar", **config["model_params"]["generator_params"], **config["model_params"]["common_params"])
+frame_shape = config["dataset_params"]["frame_shape"]
+kp_detector = build_kp_detector(f"./checkpoint/{parser.model}-cpk.pth.tar", **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"])
+generator_base = build_generator(f"./checkpoint/{parser.model}-cpk.pth.tar", **config["dataset_params"], **config["model_params"]["generator_params"], **config["model_params"]["common_params"])
 generator = lambda arr: generator_base(arr[0], arr[1], arr[2], arr[3], arr[4])
 process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"])
 
@@ -38,14 +40,14 @@ reader = imageio.get_reader(parser.driving_video)
 fps = reader.get_meta_data()["fps"]
 reader.close()
 driving_video = imageio.mimread(parser.driving_video, memtest=False)
-source_image = resize(source_image, (256, 256))[..., :num_channels][None].astype("float32")
+source_image = resize(source_image, (frame_shape[0], frame_shape[1]))[..., :num_channels][None].astype("float32")
 source = source_image.astype(np.float32)
 if parser.frames != -1:
     driving_video = driving_video[0 : parser.frames]
-driving_video = [resize(frame, (256, 256))[..., :num_channels] for frame in driving_video]
+driving_video = [resize(frame, (frame_shape[0], frame_shape[1]))[..., :num_channels] for frame in driving_video]
 frames = np.array(driving_video)[np.newaxis].astype(np.float32)[0]
 
 
-predictions = animate(source_image, frames, generator, kp_detector, process_kp_driving, 4, parser.relative, parser.adapt_movement_scale)
+predictions = animate(source_image, frames, generator, kp_detector, process_kp_driving, parser.batch_size, parser.relative, parser.adapt_movement_scale)
 imageio.mimsave(parser.output, [img_as_ubyte(frame) for frame in predictions], fps=fps)
 print("Done.")

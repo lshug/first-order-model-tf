@@ -16,8 +16,8 @@ def build(checkpoint_path, config_path, output_name):
     with open(config_path) as f:
         config = yaml.load(f, Loader=yaml.Loader)
 
-    kp_detector = build_kp_detector(checkpoint_path, **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"])
-    generator = build_generator(checkpoint_path, **config["model_params"]["generator_params"], **config["model_params"]["common_params"])
+    kp_detector = build_kp_detector(checkpoint_path, **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"])
+    generator = build_generator(checkpoint_path, **config["dataset_params"], **config["model_params"]["generator_params"], **config["model_params"]["common_params"])
     process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"])
 
     print(f"{output_name} - kp_detector")

@@ -587,6 +587,7 @@ def dense_motion(
 def build_kp_detector_base(
     checkpoint="./checkpoint/vox-cpk.pth.tar",
     num_channels=3,
+    frame_shape=(256, 256, 3),
     num_kp=10,
     temperature=0.1,
     block_expansion=32,
@@ -596,7 +597,7 @@ def build_kp_detector_base(
     estimate_jacobian=True,
     single_jacobian_map=False,
 ):
-    inp = layers.Input(shape=(256, 256, num_channels), dtype="float32", name="img")
+    inp = layers.Input(shape=(frame_shape[0], frame_shape[1], num_channels), dtype="float32", name="img")
     # downsample
     x = AntiAliasInterpolation2d(num_channels, scale_factor)(inp)
 
@@ -659,6 +660,7 @@ class KpDetector(tf.Module):
     def __init__(
         self,
         checkpoint="./checkpoint/vox-cpk.pth.tar",
+        frame_shape=(256, 256, 3),
         num_channels=3,
         num_kp=10,
         temperature=0.1,
@@ -671,6 +673,7 @@ class KpDetector(tf.Module):
     ):
         self.kp_detector = build_kp_detector_base(
             checkpoint=checkpoint,
+            frame_shape=frame_shape,
             num_channels=num_channels,
             num_kp=num_kp,
             temperature=temperature,
@@ -681,7 +684,7 @@ class KpDetector(tf.Module):
             estimate_jacobian=estimate_jacobian,
             single_jacobian_map=single_jacobian_map,
         )
-        self.__call__ = tf.function(input_signature=[tf.TensorSpec([None, 256, 256, num_channels], tf.float32)])(self.__call__)
+        self.__call__ = tf.function(input_signature=[tf.TensorSpec([None, frame_shape[0], frame_shape[1], num_channels], tf.float32)])(self.__call__)
         super(KpDetector, self).__init__()
 
     def __call__(self, img):
@@ -694,6 +697,7 @@ def build_kp_detector(checkpoint, **kwargs):
 
 def build_generator_base(
     checkpoint="./checkpoint/vox-cpk.pth.tar",
+    frame_shape=(256, 256, 3),
     num_kp=10,
     num_channels=3,
     estimate_jacobian=True,
@@ -707,7 +711,7 @@ def build_generator_base(
 ):
     jacobian_number = 1 if single_jacobian_map else num_kp
 
-    inp = layers.Input(shape=(256, 256, num_channels), dtype="float32", name="source")
+    inp = layers.Input(shape=(frame_shape[0], frame_shape[1], num_channels), dtype="float32", name="source")
     driving_kp = layers.Input(shape=(num_kp, 2), dtype="float32", name="kp_driving")
     kp_driving_jacobian = layers.Input(shape=(jacobian_number, 2, 2), dtype="float32", name="kp_driving_jacobian")
     source_kp = layers.Input(shape=(num_kp, 2), dtype="float32", name="kp_source")
@@ -720,7 +724,7 @@ def build_generator_base(
         x = DownBlock2d(x, min(max_features, block_expansion * (2 ** (i + 1))), name="down_blocks" + str(i))
 
     deformation, occlusion_map = dense_motion(
-        inp, driving_kp, kp_driving_jacobian, source_kp, kp_source_jacobian, (256, 256), num_channels=num_channels, num_kp=num_kp, estimate_jacobian=estimate_jacobian, **dense_motion_params
+        inp, driving_kp, kp_driving_jacobian, source_kp, kp_source_jacobian, (frame_shape[0], frame_shape[1]), num_channels=num_channels, num_kp=num_kp, estimate_jacobian=estimate_jacobian, **dense_motion_params
     )
 
     if deformation.shape[1] != x.shape[1] or deformation.shape[2] != x.shape[2]:
@@ -771,6 +775,7 @@ class Generator(tf.Module):
         self,
         checkpoint="./checkpoint/vox-cpk.pth.tar",
         num_kp=10,
+        frame_shape=(256, 256, 3),
         num_channels=3,
         estimate_jacobian=True,
         single_jacobian_map=False,
@@ -784,7 +789,9 @@ class Generator(tf.Module):
         jacobian_number = 1 if single_jacobian_map else num_kp
         self.generator = build_generator_base(
             checkpoint=checkpoint,
+            
             num_kp=num_kp,
+            frame_shape=frame_shape,
             num_channels=num_channels,
             estimate_jacobian=estimate_jacobian,
             block_expansion=block_expansion,
@@ -796,7 +803,7 @@ class Generator(tf.Module):
         )
         self.__call__ = tf.function(
             input_signature=[
-                tf.TensorSpec([1, 256, 256, num_channels], tf.float32),
+                tf.TensorSpec([1, frame_shape[0], frame_shape[1], num_channels], tf.float32),
                 tf.TensorSpec([None, num_kp, 2], tf.float32),
                 tf.TensorSpec([None, jacobian_number, 2, 2], tf.float32),
                 tf.TensorSpec([1, num_kp, 2], tf.float32),
