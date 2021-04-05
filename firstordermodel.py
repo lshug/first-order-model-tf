@@ -854,13 +854,11 @@ class ProcessKpDriving(tf.Module):
 
         source_area = self.convex_hull_area(kp_source)
         driving_area = self.convex_hull_area(kp_driving_initial)
-        scales = tf.sqrt(source_area) / tf.sqrt(driving_area)
-        ones = scales * 0.0 + 1.0
-        scales = tf.where((adapt_movement_scale & (ones > 0)), scales, ones)  # (10,)'
-        scales = tf.expand_dims(tf.expand_dims([scales], 1), 1)
-        ones = tf.expand_dims(tf.expand_dims([ones], 1), 1)
+        scale = tf.sqrt(source_area) / tf.sqrt(driving_area)
+        ones = scale * 0.0 + 1.0
+        scale = tf.where(adapt_movement_scale, scale, ones)[None][None][None]  # (10,)'
         kp_value_diff = kp_driving - kp_driving_initial
-        kp_value_diff *= scales
+        kp_value_diff = kp_value_diff * scale
 
         kp_new = kp_value_diff + kp_source
         ones = kp_new * 0.0 + 1.0
@@ -910,7 +908,7 @@ class ProcessKpDriving(tf.Module):
         j = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 1][:, 1], 1), O[:, :, 1][:, 2:], tf.expand_dims(O[:, :, 1][:, 0], 1)], 1), (1, 0))
         k = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 0][:, 1], 1), O[:, :, 0][:, 2:], tf.expand_dims(O[:, :, 0][:, 0], 1)], 1), (1, 0))
         inc = (tf.eye(L) * tf.tensordot(O[:, :, 0], j, 1)) @ tf.ones((L, 1)) - (tf.eye(L) * tf.tensordot(O[:, :, 1], k, 1)) @ tf.ones((L, 1))
-        area = 0.5 * tf.math.abs(inc)[0]
+        area = 0.5 * tf.math.sqrt(inc * inc)[0]
         return area
 
 
