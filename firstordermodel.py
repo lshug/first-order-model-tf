@@ -916,7 +916,10 @@ class ProcessKpDriving(tf.Module):
             p = tf.where((((q - l) < 1) & ((q - l) > -1)), p, q)
         j = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 1][:, 1], 1), O[:, :, 1][:, 2:], tf.expand_dims(O[:, :, 1][:, 0], 1)], 1), (1, 0))
         k = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 0][:, 1], 1), O[:, :, 0][:, 2:], tf.expand_dims(O[:, :, 0][:, 0], 1)], 1), (1, 0))
-        inc = (tf.eye(L) * tf.tensordot(O[:, :, 0], j, 1)) @ tf.ones((L, 1)) - (tf.eye(L) * tf.tensordot(O[:, :, 1], k, 1)) @ tf.ones((L, 1))
+        left = tf.reshape(tf.range(L * L), (L, L))
+        right = tf.transpose(left)
+        eye = tf.where(left==right, tf.ones((L,L)), tf.zeros((L,L)))
+        inc = (eye * tf.tensordot(O[:, :, 0], j, 1)) @ tf.ones((L, 1)) - (eye * tf.tensordot(O[:, :, 1], k, 1)) @ tf.ones((L, 1))
         area = 0.5 * tf.math.sqrt(inc * inc)[0]
         return area
 
