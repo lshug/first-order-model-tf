@@ -1,8 +1,8 @@
 
 # first-order-model-tf
-TensorFlow port of first-order motion model. TF Lite compatible, supports the original's checkpoints and implements in-graph kp processing, but inference only (no training). 
+TensorFlow port of first-order motion model. TF Lite and TF.js compatible, supports the original's checkpoints and implements in-graph kp processing, but inference only (no training). 
  
-Original PyTorch version can be found at [AliaksandrSiarohin/first-order-model](https://github.com/AliaksandrSiarohin/first-order-model). Copy the checkpoint tars into the checkpoint folder. If you intend to run the fashion-trained model, be sure to rename the checkpoint file for that model from fashion.pth.tar to fashion-cpk.pth.tar (the original filename for that checkpoint doesn't fit into the naming scheme for others for some reason, and that messes up the load process). To generate saved_models and lite models run build.py. After that, you can run inference directly, with saved_models, or with tf lite, using run.py, documented below.
+Original PyTorch version can be found at [AliaksandrSiarohin/first-order-model](https://github.com/AliaksandrSiarohin/first-order-model). Copy the checkpoint tars into the checkpoint folder. If you intend to run the fashion-trained model, be sure to rename the checkpoint file for that model from fashion.pth.tar to fashion-cpk.pth.tar (the original filename for that checkpoint doesn't fit into the naming scheme for others for some reason, and that messes up the load process). Run build.py to generate saved_models and lite (and tf.js models if tensorflowjs_converter is installed and --tfjs flag is used) models. After that, you can run inference directly, with saved_models, or with tf lite, using run.py.
 
 ![example](example/example.gif)
 
@@ -35,7 +35,7 @@ optional arguments:
 ```
 usage: build.py [-h] [--checkpoint_path CHECKPOINT_PATH] [--config_path CONFIG_PATH] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--tfjs] [--jsquantize {none,float16,uint16,uint8}]
 
-Build saved_models and tflites from checkpoints and configs.
+Build saved_model, tflite, and tf.js modules from checkpoints and configs.
 
 optional arguments:
   -h, --help            show this help message and exit

@@ -10,7 +10,7 @@ js_command_base = "tensorflowjs_converter --control_flow_v2=True --input_format=
 
 def build(checkpoint_path, config_path, output_name, module, tfjs, jsquantize):
     js_command = js_command_base
-    if jsquantize is not 'none':
+    if jsquantize != 'none':
         js_command = js_command_base.replace('--metadata= ', '--metadata= --quantize_'+jsquantize+'=* ')
         
     if not os.path.isdir("tflite/" + output_name):
@@ -61,7 +61,7 @@ def build(checkpoint_path, config_path, output_name, module, tfjs, jsquantize):
             command = js_command.format(output_name, 'process_kp_driving')
             subprocess.run(command.split())
 
-parser = argparse.ArgumentParser(description="Build saved_models and tflites from checkpoints and configs.")
+parser = argparse.ArgumentParser(description="Build saved_model, tflite, and tf.js modules from checkpoints and configs.")
 parser.add_argument("--checkpoint_path", action="store", type=str, default="checkpoint/vox-cpk.pth.tar", nargs=1, help="checkpoint path")
 parser.add_argument("--config_path", action="store", type=str, nargs=1, default="config/vox-256.yaml", help="config yaml path")
 parser.add_argument("-a", action="store_true", help="build models for all config files")
