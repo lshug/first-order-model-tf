@@ -25,7 +25,7 @@ def build(checkpoint_path, config_path, output_name, module):
         kp_detector_tflite = kp_detector_converter.convert()
         open("tflite/" + output_name + "/kp_detector.tflite", "wb").write(kp_detector_tflite)
     
-    if module == 'process_kp_driving' or module=='all':
+    if module == 'generator' or module=='all':
         generator = build_generator(checkpoint_path, **config["dataset_params"], **config["model_params"]["generator_params"], **config["model_params"]["common_params"])
         print(f"{output_name} - generator")
         tf.saved_model.save(generator, "saved_models/" + output_name + "/generator", signatures=generator.__call__.get_concrete_function())
@@ -34,7 +34,7 @@ def build(checkpoint_path, config_path, output_name, module):
         generator_tflite = generator_converter.convert()
         open("tflite/" + output_name + "/generator.tflite", "wb").write(generator_tflite)
     
-    if module == 'generator' or module=='all':
+    if module == 'process_kp_driving' or module=='all':
         process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"])
         print(f"{output_name} - process_kp_driving")
         tf.saved_model.save(process_kp_driving, "saved_models/" + output_name + "/process_kp_driving", process_kp_driving.__call__.get_concrete_function())
