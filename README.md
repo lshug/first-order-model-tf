@@ -6,7 +6,7 @@ Original PyTorch version can be found at [AliaksandrSiarohin/first-order-model](
 
 ![example](example/example.gif)
 
-## run.py CLI
+## run.py and build.py CLI
 ```
 usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--model MODEL] [--source_image SOURCE_IMAGE] [--driving_video DRIVING_VIDEO] [--output OUTPUT]
               [--dontappend] [--relative] [--adapt] [--frames FRAMES] [--batchsize BATCH_SIZE] [--profile]
@@ -30,6 +30,25 @@ optional arguments:
   --batchsize BATCH_SIZE
                         batch size
   --profile             enable tensorboard profiling
+```
+
+```
+usage: build.py [-h] [--checkpoint_path CHECKPOINT_PATH] [--config_path CONFIG_PATH] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--tfjs] [--jsquantize {none,float16,uint16,uint8}]
+
+Build saved_models and tflites from checkpoints and configs.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --checkpoint_path CHECKPOINT_PATH
+                        checkpoint path
+  --config_path CONFIG_PATH
+                        config yaml path
+  -a                    build models for all config files
+  --module {all,kp_detector,generator,process_kp_driving}
+                        module to build
+  --tfjs                build tf.js models, requires tensorflowjs_converter
+  --jsquantize {none,float16,uint16,uint8}
+                        quantization to apply during tf.js conversions
 ```
 
 ## Inference details
