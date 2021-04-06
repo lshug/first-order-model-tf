@@ -14,12 +14,12 @@ parser.add_argument("--source_image", action="store", type=str, nargs=1, default
 parser.add_argument("--driving_video", action="store", type=str, nargs=1, default="example/driving.mp4", help="driving video path for file datamode")
 #parser.add_argument("--dataset", action="store", type=str, nargs=1, default="example/driving.mp4", help="driving video path for dataset datamode")
 parser.add_argument("--output", action="store", type=str, default="example/output", nargs=1, help="output file")
-parser.add_argument("--dontappend",  action="store_true", help="Don't append format name and .mp4 to the output filename")
-parser.add_argument("--relative", action="store_true", help="Relative kp mode")
-parser.add_argument("--adapt", dest="adapt_movement_scale", action="store_true", help="Adapt movement to the proportion between the sizes of subjects in the input image and the driving video")
+parser.add_argument("--dontappend",  action="store_true", help="don't append format name and .mp4 to the output filename")
+parser.add_argument("--relative", action="store_true", help="relative kp mode")
+parser.add_argument("--adapt", dest="adapt_movement_scale", action="store_true", help="adapt movement to the proportion between the sizes of subjects in the input image and the driving video")
 parser.add_argument("--frames", type=int, default=-1, help="number of frames to process")
 parser.add_argument("--batchsize", dest="batch_size", type=int, default=4, help="batch size")
-parser.add_argument("--profile", action="store_true", help="Enable tensorboard profiling")
+parser.add_argument("--profile", action="store_true", help="enable tensorboard profiling")
 parser = parser.parse_args()
 
 load_funcs = {'direct':load_models_direct, 'savedmodel':load_models_savedmodel, 'tflite':load_models_tflite}
