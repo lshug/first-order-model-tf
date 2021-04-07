@@ -142,10 +142,10 @@ class SparseMotion(layers.Layer):
         identity_grid = tf.reshape(identity_grid, (-1, 1, h, w, 2))
 
         # adjust coordinate grid with jacobians, then where it with the thingie
-
-        jacobian = tf.reshape(tf.tile(kp_source_jacobian, (bs, 1, 1, 1)), (-1, 2, 2)) @ tf.reshape(batch_batch_four_by_four_inv(kp_driving_jacobian, self.num_kp), (-1, 2, 2))
-        jacobian = tf.reshape(jacobian, (-1, self.num_kp, 1, 1, 2, 2))  # b kp 1 1 2 2
-        jacobian = tf.tile(jacobian, (1, 1, self.spatial_size[0], self.spatial_size[1], 1, 1))
+        
+        jacobian = tf.reshape(tf.tile(kp_source_jacobian, (bs, 1, 1, 1)), (-1, 2, 2)) @ tf.reshape(batch_batch_four_by_four_inv(kp_driving_jacobian), (-1, 2, 2))
+        jacobian = tf.reshape(jacobian, (-1, kp_driving_jacobian.shape[1], 1, 1, 2, 2))  # b kp 1 1 2 2
+        jacobian = tf.tile(jacobian, (1, self.jacobian_tile, self.spatial_size[0], self.spatial_size[1], 1, 1))
         jacobian = tf.reshape(jacobian, (-1, 2, 2))
         reshaped_grid = tf.reshape(coordinate_grid, (-1, 2, 1))
         new_coordinate_grid = jacobian @ reshaped_grid
@@ -162,6 +162,7 @@ class SparseMotion(layers.Layer):
 
     def build(self, input_shape):
         self.grid = make_coordinate_grid(self.spatial_size, "float32")
+        self.jacobian_tile = self.num_kp if input_shape[1][1]==1 else 1
         # self.reshape = layers.Reshape()
         super(SparseMotion, self).build(input_shape)
 
@@ -621,14 +622,14 @@ def build_kp_detector_base(
 
     num_jacobian_map = 1 if single_jacobian_map else num_kp
     jacobian_map = layers.Conv2D(4 * num_jacobian_map, kernel_size=(7, 7), name="jacmap")(feature_map)
-    jacobian_map = layers.Reshape((jacobian_map.shape[1], jacobian_map.shape[2], num_jacobian_map, 4))(jacobian_map)
+    jacobian_map = layers.Reshape((jacobian_map.shape[1], jacobian_map.shape[2], num_jacobian_map, 4))(jacobian_map) #b h w num_kp 4, bhw14
     heatmap = layers.Lambda(lambda l: tf.expand_dims(l, 4))(heatmap)
     jacobian = layers.Multiply()([heatmap, jacobian_map])  # 1 h w 10 4
 
     # jacobian = layers.Lambda(lambda l: [l, tf.io.write_file('../jac.npy',tf.io.serialize_tensor(l))][0])(jacobian)
     # jacobian = layers.Permute((3, 4, 1, 2))(jacobian)
 
-    jacobian = layers.Reshape((-1, num_kp, 4))(jacobian)
+    jacobian = layers.Reshape((-1, num_jacobian_map, 4))(jacobian)
     jacobian = layers.Lambda(lambda l: tf.reduce_sum(l, 1))(jacobian)
     jacobian = layers.Reshape((num_jacobian_map, 2, 2))(jacobian)
     # out = layers.Lambda(lambda l: [l, tf.io.write_file('../out.npy',tf.io.serialize_tensor(l))][0])(out)
@@ -823,7 +824,8 @@ def build_generator(checkpoint, **kwargs):
 
 
 @tf.autograph.experimental.do_not_convert
-def batch_batch_four_by_four_inv(x, num_kp=10):
+def batch_batch_four_by_four_inv(x):
+    num_kp = x.shape[1]
     a = x[:, :, 0, 0]
     b = x[:, :, 0, 1]
     c = x[:, :, 1, 0]
@@ -840,6 +842,7 @@ class ProcessKpDriving(tf.Module):
     def __init__(self, num_kp, single_jacobian_map=False):
         self.num_kp = num_kp
         jacobian_number = 1 if single_jacobian_map else self.num_kp
+        self.jacobian_number = jacobian_number
         self.__call__ = tf.function(
             input_signature=[
                 tf.TensorSpec([None, num_kp, 2], tf.float32),
@@ -871,7 +874,7 @@ class ProcessKpDriving(tf.Module):
 
         kp_new = kp_value_diff + kp_source
         ones = kp_new * 0.0 + 1.0
-        inv_kp_driving_initial_jacobian = batch_batch_four_by_four_inv(kp_driving_initial_jacobian, self.num_kp)
+        inv_kp_driving_initial_jacobian = batch_batch_four_by_four_inv(kp_driving_initial_jacobian)
         inv_kp_driving_initial_jacobian = tf.tile(inv_kp_driving_initial_jacobian, (tf.shape(kp_driving_jacobian)[0], 1, 1, 1))
 
         res_kp_driving_jacobian = tf.reshape(kp_driving_jacobian, (-1, 2, 2))
@@ -882,8 +885,8 @@ class ProcessKpDriving(tf.Module):
         kp_source_jacobian = tf.tile(kp_source_jacobian, (tf.shape(kp_driving)[0], 1, 1, 1))
         kp_source_jacobian = tf.reshape(kp_source_jacobian, (-1, 2, 2))
         new_kp_driving_jacobian = jacobian_diff @ kp_source_jacobian
-        new_kp_driving_jacobian = tf.reshape(new_kp_driving_jacobian, (-1, self.num_kp, 2, 2))
-        kp_driving_jacobian = tf.reshape(kp_driving_jacobian, (-1, self.num_kp, 2, 2))
+        new_kp_driving_jacobian = tf.reshape(new_kp_driving_jacobian, (-1, self.jacobian_number, 2, 2))
+        kp_driving_jacobian = tf.reshape(kp_driving_jacobian, (-1, self.jacobian_number, 2, 2))
         kp_driving = tf.where((use_relative_movement & (ones > 0)), kp_new, kp_driving)
         kp_driving = tf.reshape(kp_driving, (-1, self.num_kp, 2))
         ones = kp_driving_jacobian * 0.0 + 1.0
