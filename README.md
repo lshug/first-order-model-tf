@@ -33,22 +33,20 @@ optional arguments:
 ```
 
 ```
-usage: build.py [-h] [--checkpoint_path CHECKPOINT_PATH] [--config_path CONFIG_PATH] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--tfjs] [--jsquantize {none,float16,uint16,uint8}]
+usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--tfjs] [--jsquantize {none,float16,uint16,uint8}]
 
 Build saved_model, tflite, and tf.js modules from checkpoints and configs.
 
 optional arguments:
   -h, --help            show this help message and exit
-  --checkpoint_path CHECKPOINT_PATH
-                        checkpoint path
-  --config_path CONFIG_PATH
-                        config yaml path
+  --model MODEL         model config and checkpoint to load
   -a                    build models for all config files
   --module {all,kp_detector,generator,process_kp_driving}
                         module to build
   --tfjs                build tf.js models, requires tensorflowjs_converter
   --jsquantize {none,float16,uint16,uint8}
                         quantization to apply during tf.js conversions
+
 ```
 
 ## Inference details

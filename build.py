@@ -62,8 +62,7 @@ def build(checkpoint_path, config_path, output_name, module, tfjs, jsquantize):
             subprocess.run(command.split())
 
 parser = argparse.ArgumentParser(description="Build saved_model, tflite, and tf.js modules from checkpoints and configs.")
-parser.add_argument("--checkpoint_path", action="store", type=str, default="checkpoint/vox-cpk.pth.tar", nargs=1, help="checkpoint path")
-parser.add_argument("--config_path", action="store", type=str, nargs=1, default="config/vox-256.yaml", help="config yaml path")
+parser.add_argument("--model", action="store", default="vox", help="model config and checkpoint to load")
 parser.add_argument("-a", action="store_true", help="build models for all config files")
 parser.add_argument('--module', choices=['all', 'kp_detector', 'generator', 'process_kp_driving'], default='all', help="module to build")
 parser.add_argument('--tfjs', action='store_true', help="build tf.js models, requires tensorflowjs_converter")
@@ -73,10 +72,11 @@ parser = parser.parse_args()
 
 print("Building")
 if not parser.a:
-    checkpoint_path = parser.checkpoint_path
-    config_path = parser.config_path
+    print(parser.model)
+    checkpoint_path = f"checkpoint/{parser.model}-cpk.pth.tar"
+    config_path = f"config/{parser.model}-256.yaml"
     output_name = config_path.split("/")[-1].split("256")[0][:-1]
-    build(checkpoint_path, config_path, output_name, parser.module, parser.tfjs)
+    build(checkpoint_path, config_path, output_name, parser.module, parser.tfjs, parser.jsquantize)
 else:
     configs = os.listdir("config/")
     checkpoints = ["checkpoint/" + x.split("256")[0] + "cpk.pth.tar" for x in configs]
