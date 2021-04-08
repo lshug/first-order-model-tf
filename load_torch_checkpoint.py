@@ -1,7 +1,6 @@
 import pickle
 import sys
 import numpy as np
-import struct
 
 arr_dict = {}
 scount = 0
@@ -63,10 +62,9 @@ def load_torch_checkpoint(path):
     for idx, key in enumerate(deserialized_storage_keys):
         arr = arr_dict[deserialized_objects[key].ind]
         buffer = f.read(8 + arr.nbytes)
-        nbytes = len(buffer[8:])
         new_arr = np.zeros(arr.size, dtype=arr.dtype)
         new_arr.data.cast('B')[0:] = buffer[8:]
         new_arr = np.reshape(new_arr, arr.shape)
-        np.putmask(arr, [np.ones(arr.shape, dtype='bool')], new_arr)
+        np.putmask(arr, np.ones(arr.shape, dtype='bool'), new_arr)
     arr_dict.clear()
     return result 

@@ -96,7 +96,7 @@ class GaussianToKpTail(layers.Layer):
     def call(self, x):
         x = tf.cast(x, "float32")
         out = tf.reshape(x, (-1, self.spatial_size[0] * self.spatial_size[1], self.num_kp))  # B (H*W) 3
-        out = keras.activations.softmax(out / self.temperature, axis=1)  # 0.1 is temperature
+        out = keras.activations.softmax(out / self.temperature, axis=1)
         heatmap = tf.reshape(out, (-1, self.spatial_size[0], self.spatial_size[1], self.num_kp))
         heatmap2 = tf.transpose(heatmap, (0, 3, 1, 2))
         heatmap2 = tf.expand_dims(heatmap2, 4)
@@ -135,15 +135,15 @@ class SparseMotion(layers.Layer):
         bs = tf.shape(kp_driving)[0]
         h, w = self.spatial_size
         identity_grid = self.grid  # hw2
-        # (lambda l: [l,tf.io.write_file('../../spmx.npy',tf.io.serialize_tensor(l))][0])(x)
 
-        coordinate_grid = identity_grid[None][None] - tf.reshape(kp_driving, (-1, self.num_kp, 1, 1, 2))  # b 10 1 1 2
+        coordinate_grid = identity_grid[None][None] - tf.reshape(kp_driving, (-1, self.num_kp, 1, 1, 2))
         identity_grid = identity_grid + 0 * tf.reduce_sum(coordinate_grid, 1)  # bhw2
         identity_grid = tf.reshape(identity_grid, (-1, 1, h, w, 2))
 
         # adjust coordinate grid with jacobians, then where it with the thingie
-        
-        jacobian = tf.reshape(tf.tile(kp_source_jacobian, (bs, 1, 1, 1)), (-1, 2, 2)) @ tf.reshape(batch_batch_four_by_four_inv(kp_driving_jacobian), (-1, 2, 2))
+        left = tf.reshape(tf.tile(kp_source_jacobian, (bs, 1, 1, 1)), (-1, 2, 2))
+        right = tf.reshape(batch_batch_four_by_four_inv(kp_driving_jacobian), (-1, 2, 2))
+        jacobian = left @ right
         jacobian = tf.reshape(jacobian, (-1, kp_driving_jacobian.shape[1], 1, 1, 2, 2))  # b kp 1 1 2 2
         jacobian = tf.tile(jacobian, (1, self.jacobian_tile, self.spatial_size[0], self.spatial_size[1], 1, 1))
         jacobian = tf.reshape(jacobian, (-1, 2, 2))
@@ -154,16 +154,14 @@ class SparseMotion(layers.Layer):
             coordinate_grid = new_coordinate_grid
 
         mult = tf.tile(tf.reshape(kp_source, (-1, self.num_kp, 1, 1, 2)), (bs, 1, h, w, 1))
-        driving_to_source = coordinate_grid - -1 * mult  # if multiple works, coordinate_grid will be b 10 1 1 2 and the right part will be 1 10 1 1 2
+        driving_to_source = coordinate_grid - -1 * mult
 
-        # identity_grid = self.reshape(identity_grid)
         sparse_motions = tf.concat([identity_grid, driving_to_source], 1)
         return sparse_motions
 
     def build(self, input_shape):
         self.grid = make_coordinate_grid(self.spatial_size, "float32")
         self.jacobian_tile = self.num_kp if input_shape[1][1]==1 else 1
-        # self.reshape = layers.Reshape()
         super(SparseMotion, self).build(input_shape)
 
     def compute_output_shape(self, input_shape):
@@ -229,7 +227,6 @@ class KpToGaussian(layers.Layer):
         grid = make_coordinate_grid(self.spatial_size, "float32")[None][None]
         grid = tf.tile(grid, (1, self.num_kp, 1, 1, 1))
         self.grid = grid
-        # self.reshape = layers.Reshape(()
         super(KpToGaussian, self).build(input_shape)
 
     def compute_output_shape(self, input_shape):
@@ -377,7 +374,6 @@ class GridSample(layers.Layer):
         iH, iW = img.shape[1], img.shape[2]
 
         # extract x,y from grid
-        # x = tf.reshape(grid[:, :, :, 0], ())
         x = tf.reshape(grid[:, :, :, 0], (-1, H, W, 1))
         y = tf.reshape(grid[:, :, :, 1], (-1, H, W, 1))
 
@@ -587,8 +583,8 @@ def dense_motion(
 
 def build_kp_detector_base(
     checkpoint="./checkpoint/vox-cpk.pth.tar",
-    num_channels=3,
     frame_shape=(256, 256, 3),
+    num_channels=3,
     num_kp=10,
     temperature=0.1,
     block_expansion=32,
@@ -626,17 +622,13 @@ def build_kp_detector_base(
     heatmap = layers.Lambda(lambda l: tf.expand_dims(l, 4))(heatmap)
     jacobian = layers.Multiply()([heatmap, jacobian_map])  # 1 h w 10 4
 
-    # jacobian = layers.Lambda(lambda l: [l, tf.io.write_file('../jac.npy',tf.io.serialize_tensor(l))][0])(jacobian)
-    # jacobian = layers.Permute((3, 4, 1, 2))(jacobian)
-
     jacobian = layers.Reshape((-1, num_jacobian_map, 4))(jacobian)
     jacobian = layers.Lambda(lambda l: tf.reduce_sum(l, 1))(jacobian)
     jacobian = layers.Reshape((num_jacobian_map, 2, 2))(jacobian)
-    # out = layers.Lambda(lambda l: [l, tf.io.write_file('../out.npy',tf.io.serialize_tensor(l))][0])(out)
-    # jacobian = layers.Lambda(lambda l: [l, tf.io.write_file('../jac.npy',tf.io.serialize_tensor(l))][0])(jacobian)
     model = keras.Model(inp, [out, jacobian])
     model.trainable = False
     model.compile("sgd", "mse")
+    
     sd = load_torch_checkpoint(checkpoint)["kp_detector"]
     sd = list(sd.values())
     for layer in model.layers:
@@ -698,8 +690,8 @@ def build_kp_detector(checkpoint, **kwargs):
 def build_generator_base(
     checkpoint="./checkpoint/vox-cpk.pth.tar",
     frame_shape=(256, 256, 3),
-    num_kp=10,
     num_channels=3,
+    num_kp=10,
     estimate_jacobian=True,
     single_jacobian_map=False,
     block_expansion=64,
@@ -717,14 +709,15 @@ def build_generator_base(
     source_kp = layers.Input(shape=(num_kp, 2), dtype="float32", name="kp_source")
     kp_source_jacobian = layers.Input(shape=(jacobian_number, 2, 2), dtype="float32", name="kp_source_jacobian")
 
-    # x = layers.Lambda(lambda l: [l[0],print(l[0].shape),print(l[1].shape),print(l[2].shape),input('generator t')][0])([inp,driving_kp,source_kp])
-
     x = SameBlock2d(inp, block_expansion, name="first")
     for i in range(num_down_blocks):
         x = DownBlock2d(x, min(max_features, block_expansion * (2 ** (i + 1))), name="down_blocks" + str(i))
 
     deformation, occlusion_map = dense_motion(
-        inp, driving_kp, kp_driving_jacobian, source_kp, kp_source_jacobian, (frame_shape[0], frame_shape[1]), num_channels=num_channels, num_kp=num_kp, estimate_jacobian=estimate_jacobian, **dense_motion_params
+        inp, driving_kp, kp_driving_jacobian, source_kp, 
+        kp_source_jacobian, (frame_shape[0], frame_shape[1]), 
+        num_channels=num_channels, num_kp=num_kp,
+        estimate_jacobian=estimate_jacobian, **dense_motion_params
     )
 
     if deformation.shape[1] != x.shape[1] or deformation.shape[2] != x.shape[2]:
@@ -772,9 +765,9 @@ class Generator(tf.Module):
     def __init__(
         self,
         checkpoint="./checkpoint/vox-cpk.pth.tar",
-        num_kp=10,
         frame_shape=(256, 256, 3),
         num_channels=3,
+        num_kp=10,
         estimate_jacobian=True,
         single_jacobian_map=False,
         block_expansion=64,
@@ -788,9 +781,8 @@ class Generator(tf.Module):
         jacobian_number = 1 if single_jacobian_map else num_kp
         self.generator = build_generator_base(
             checkpoint=checkpoint,
-            
-            num_kp=num_kp,
             frame_shape=frame_shape,
+            num_kp=num_kp,
             num_channels=num_channels,
             estimate_jacobian=estimate_jacobian,
             block_expansion=block_expansion,
@@ -855,7 +847,10 @@ class ProcessKpDriving(tf.Module):
         super(ProcessKpDriving, self).__init__()
 
     def __call__(
-        self, kp_driving, kp_driving_jacobian, kp_driving_initial, kp_driving_initial_jacobian, kp_source, kp_source_jacobian, use_relative_movement, use_relative_jacobian, adapt_movement_scale
+        self, kp_driving, kp_driving_jacobian, 
+        kp_driving_initial, kp_driving_initial_jacobian,
+        kp_source, kp_source_jacobian, 
+        use_relative_movement, use_relative_jacobian, adapt_movement_scale
     ):
         kp_driving_initial = kp_driving_initial[None]
         kp_driving_initial_jacobian = kp_driving_initial_jacobian[None]
