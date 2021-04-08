@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import backend as K
 from tensorflow.keras import layers
-
+from load_torch_checkpoint import load_torch_checkpoint
 
 class AntiAliasInterpolation2d(layers.Layer):
     def __init__(self, channels, scale, **kwargs):
@@ -637,22 +637,20 @@ def build_kp_detector_base(
     model = keras.Model(inp, [out, jacobian])
     model.trainable = False
     model.compile("sgd", "mse")
-    import torch
-
-    sd = torch.load(checkpoint, map_location=torch.device("cpu"))["kp_detector"]
+    sd = load_torch_checkpoint(checkpoint)["kp_detector"]
     sd = list(sd.values())
     for layer in model.layers:
         if "Conv2D" in repr(layer):
-            weight = sd.pop(0).numpy()
+            weight = sd.pop(0)
             weight = weight.transpose(2, 3, 1, 0)
-            bias = sd.pop(0).numpy()
+            bias = sd.pop(0)
             layer.set_weights([weight, bias])
         if "BatchNormalization" in repr(layer):
-            gamma = sd.pop(0).numpy()
-            beta = sd.pop(0).numpy()
-            mean = sd.pop(0).numpy()
-            var = sd.pop(0).numpy()
-            num_batches_tracked = sd.pop(0).numpy()
+            gamma = sd.pop(0)
+            beta = sd.pop(0)
+            mean = sd.pop(0)
+            var = sd.pop(0)
+            num_batches_tracked = sd.pop(0)
             layer.set_weights([gamma, beta, mean, var])
     return model
 
@@ -748,9 +746,7 @@ def build_generator_base(
     model.trainable = False
     model.compile("sgd", "mse")
 
-    import torch
-
-    sd = torch.load(checkpoint, map_location=torch.device("cpu"))["generator"]
+    sd = load_torch_checkpoint(checkpoint)["generator"]
     sd = list(sd.items())
     while len(sd) > 0:
         k, v = sd.pop(0)
@@ -761,13 +757,13 @@ def build_generator_base(
             _, mean = sd.pop(0)
             _, var = sd.pop(0)
             num_batches_tracked, _ = sd.pop(0)
-            layer.set_weights([gamma.numpy(), beta.numpy(), mean.numpy(), var.numpy()])
+            layer.set_weights([gamma, beta, mean, var])
         if ".conv" in k or ".mask" in k or ".occlusion" in k or "final" in k:
             layer = model.get_layer(name="".join(k.split(".")[:-1]).replace(".", ""))
             weight = v
             _, bias = sd.pop(0)
-            weight = weight.permute(2, 3, 1, 0)
-            layer.set_weights([weight.numpy(), bias.numpy()])
+            weight = weight.transpose(2, 3, 1, 0)
+            layer.set_weights([weight, bias])
 
     return model
 

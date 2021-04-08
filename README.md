@@ -98,10 +98,6 @@ I've been meaning to refactor it into multiple files, but got kinda attached to 
 
 Hack-around to make calling from outside not too ugly (though I guess I can't really complain about ugly code), while wrapping the keras models in modules with concrete functions for easier saved_model saving and tflite conversion. build_generator calls the constructor of the Generator tf.module, which wraps the generator keras model and the the \_\_call\_\_ of which is a tf.function with a well-defined signature which calls the model. The model itself is built by the module's constructor by running build_generator_base, which defines the keras model and loads the weights from a checkpoint file.
 
-**Why is PyTorch in requirements?**
-
-To load the weights from the checkpoints using torch.load. This should be doable without PyTorch too, as the checkpoints are just tar'd torch tensors and getting the data out as numpy arrays shouldn't be too hard, but I haven't experimented with this.
-
 **Can the code be significantly optimized further?**
 
 A: Probably not. TensorBoard profiler and TF Lite benchmarking tool both show that almost all of the inference time is spent on conv2d ops for both generator and detector, and the time spent on process_kp_driving is already very short. If you do have any ideas, pull request away! Out of code, all the usual post-training tf lite optimizations can be added to reduce .tflite sizes and to speed up inference. Refer to [TF Lite optimization guide](https://www.tensorflow.org/lite/performance/model_optimization) and to [tensorflow-model-optimization documentation's weight clustering guide](https://www.tensorflow.org/model_optimization/guide/clustering/clustering_example).
