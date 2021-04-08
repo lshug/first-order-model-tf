@@ -4,13 +4,12 @@ import numpy as np
 import struct
 
 arr_dict = {}
+scount = 0
+
 def rebuild_as_numpy(storage, storage_offset, size, stride, *args, **kwargs):
     arr = np.copy(np.lib.stride_tricks.as_strided(storage.arr, size, stride))
-    #arr = np.reshape(storage.arr, size)
     arr_dict[storage.ind] = arr
     return arr
-
-scount = 0
 
 class FloatStorage:
     def __init__(self, size):
@@ -20,7 +19,6 @@ class FloatStorage:
         self.ind = scount
         scount += 1
 
-lscount = 0
 class LongStorage:
     def __init__(self, size):
         global scount
