@@ -36,7 +36,7 @@ kp_detector, process_kp_driving, generator, _interpreter_obj_list = load_funcs[p
 predictions = animate(source_image, frames, generator, kp_detector, process_kp_driving, parser.batch_size, parser.relative, parser.adapt_movement_scale, parser.profile)
 
 output = parser.output
-format_appends = {'direct':'', '.savedmodel':'.savedmodel', 'tflite':'.tflite'}
+format_appends = {'direct':'', 'savedmodel':'.savedmodel', 'tflite':'.tflite'}
 if not parser.dontappend:
     output = output + format_appends[parser.target] + '.mp4'
 save_video(output, predictions, fps=fps)
