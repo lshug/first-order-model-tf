@@ -47,7 +47,6 @@ def load_torch_checkpoint(path):
         data_type, root_key, location, size, view_metadata = data
         if root_key not in deserialized_objects:
             obj = data_type(size)
-            obj._torch_load_uninitialized = True
             deserialized_objects[root_key] = obj
         storage = deserialized_objects[root_key]
         return storage
