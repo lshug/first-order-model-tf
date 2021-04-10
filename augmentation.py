@@ -11,6 +11,7 @@ import PIL
 from skimage.transform import resize, rotate
 from skimage.util import pad
 from tensorflow import image
+from tensorflow.keras.preprocessing import image as keras_image
 
 import warnings
 
@@ -231,7 +232,7 @@ class ColorJitter(object):
         self.brightness = brightness
         self.contrast = contrast
         self.saturation = saturation
-        self.hue = hue
+        self.hue = 2 * hue
 
     def get_params(self, brightness, contrast, saturation, hue):
         if brightness > 0:
@@ -272,7 +273,7 @@ class ColorJitter(object):
             # Create img transform function sequence
             img_transforms = []
             if brightness is not None:
-                img_transforms.append(lambda img: image.adjust_brightness(img, brightness))
+                img_transforms.append(lambda img: image.adjust_brightness(img, np.mean(keras_image.img_to_array(img)) * brightness - np.mean(keras_image.img_to_array(img))))
             if saturation is not None:
                 img_transforms.append(lambda img: image.adjust_saturation(img, saturation))
             if hue is not None:
@@ -280,7 +281,7 @@ class ColorJitter(object):
             if contrast is not None:
                 img_transforms.append(lambda img: image.adjust_contrast(img, contrast))
             random.shuffle(img_transforms)
-            img_transforms = [img_as_ubyte, image.array_to_img] + img_transforms + [np.array, img_as_float]
+            img_transforms = [img_as_ubyte, keras_image.array_to_img] + img_transforms + [np.array, img_as_float]
 
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
