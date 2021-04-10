@@ -25,6 +25,11 @@ def build(checkpoint_path, config_path, output_name, module, tfjs, jsquantize):
     with open(config_path) as f:
         config = yaml.load(f, Loader=yaml.Loader)
     
+    try:
+        single_jacobian_map = config["model_params"]["kp_detector_params"]['single_jacobian_map']
+    except:
+        single_jacobian_map = False
+    
     if module == 'kp_detector' or module=='all':
         kp_detector = build_kp_detector(checkpoint_path, **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"])
         print(f"{output_name} - kp_detector")
@@ -38,7 +43,7 @@ def build(checkpoint_path, config_path, output_name, module, tfjs, jsquantize):
             subprocess.run(command.split())
     
     if module == 'generator' or module=='all':
-        generator = build_generator(checkpoint_path, **config["dataset_params"], **config["model_params"]["generator_params"], **config["model_params"]["common_params"])
+        generator = build_generator(checkpoint_path, **config["dataset_params"], **config["model_params"]["generator_params"], **config["model_params"]["common_params"], single_jacobian_map=single_jacobian_map)
         print(f"{output_name} - generator")
         tf.saved_model.save(generator, "saved_models/" + output_name + "/generator", signatures=generator.__call__.get_concrete_function())
         generator_converter = tf.lite.TFLiteConverter.from_saved_model("saved_models/" + output_name + "/generator")
@@ -50,7 +55,7 @@ def build(checkpoint_path, config_path, output_name, module, tfjs, jsquantize):
             subprocess.run(command.split())
 
     if module == 'process_kp_driving' or module=='all':
-        process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"], **config["model_params"]["kp_detector_params"])
+        process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"], single_jacobian_map=single_jacobian_map)
         print(f"{output_name} - process_kp_driving")
         tf.saved_model.save(process_kp_driving, "saved_models/" + output_name + "/process_kp_driving", process_kp_driving.__call__.get_concrete_function())
         process_kp_driving_converter = tf.lite.TFLiteConverter.from_saved_model("saved_models/" + output_name + "/process_kp_driving")

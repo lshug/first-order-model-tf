@@ -131,7 +131,7 @@ class SparseMotion(layers.Layer):
         super(SparseMotion, self).__init__(**kwargs)
 
     def call(self, x):
-        kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian = x[0], x[1], x[2], x[3]
+        kp_driving, kp_source = x[0], x[2]
         bs = tf.shape(kp_driving)[0]
         h, w = self.spatial_size
         identity_grid = self.grid  # hw2
@@ -142,6 +142,7 @@ class SparseMotion(layers.Layer):
 
         # adjust coordinate grid with jacobians, then where it with the thingie
         if self.estimate_jacobian:
+            kp_driving_jacobian, kp_source_jacobian = x[1], x[3]
             left = tf.reshape(tf.tile(kp_source_jacobian, (bs, 1, 1, 1)), (-1, 2, 2))
             right = tf.reshape(batch_batch_four_by_four_inv(kp_driving_jacobian), (-1, 2, 2))
             jacobian = left @ right
@@ -547,6 +548,8 @@ def dense_motion(
     h = int(h * scale_factor)
     w = int(w * scale_factor)
     heatmap_representation = create_heatmap_representation(kp_driving, kp_source, h, w, num_kp)  # B 11 H W 1
+    if not estimate_jacobian:
+        kp_driving_jacobian, kp_source_jacobian = None, None
     sparse_motion = SparseMotion((h, w), num_kp, estimate_jacobian)([kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian])  # B 11  H W 2
     deformed_source = Deform((h, w), num_channels, num_kp)([source, sparse_motion])  # B 11 H W C
 
@@ -685,6 +688,7 @@ class KpDetector(tf.Module):
         pad=0,
         **kwargs,
     ):
+        self.single_jacobian_map = single_jacobian_map
         self.kp_detector = build_kp_detector_base(
             checkpoint=checkpoint,
             frame_shape=frame_shape,
@@ -816,6 +820,7 @@ class Generator(tf.Module):
             num_kp=num_kp,
             num_channels=num_channels,
             estimate_jacobian=estimate_jacobian,
+            single_jacobian_map=single_jacobian_map,
             block_expansion=block_expansion,
             max_features=max_features,
             num_down_blocks=num_down_blocks,
@@ -823,19 +828,27 @@ class Generator(tf.Module):
             estimate_occlusion_map=estimate_occlusion_map,
             dense_motion_params=dense_motion_params,
         )
-        self.__call__ = tf.function(
-            input_signature=[
+        input_signature=[
                 tf.TensorSpec([1, frame_shape[0], frame_shape[1], num_channels], tf.float32),
                 tf.TensorSpec([None, num_kp, 2], tf.float32),
                 tf.TensorSpec([None, jacobian_number, 2, 2], tf.float32),
                 tf.TensorSpec([1, num_kp, 2], tf.float32),
                 tf.TensorSpec([1, jacobian_number, 2, 2], tf.float32),
             ]
-        )(self.__call__)
+        if estimate_jacobian:
+            self.__call__ = tf.function(input_signature=input_signature)(self.__call__)
+        else:
+            for to_remove in [input_signature[2], input_signature[4]]:
+                input_signature.remove(to_remove)
+            self.__call__ = tf.function(input_signature=input_signature)(self.call_nojacobian)
         super(Generator, self).__init__()
+    
+    def call_nojacobian(self, source_image, kp_driving, kp_source):
+        return self.generator([source_image, kp_driving, kp_source], training=False)
 
     def __call__(self, source_image, kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian):
         return self.generator([source_image, kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian], training=False)
+            
 
 
 def build_generator(checkpoint, **kwargs):
@@ -863,8 +876,7 @@ class ProcessKpDriving(tf.Module):
         self.estimate_jacobian = estimate_jacobian
         jacobian_number = 1 if single_jacobian_map else self.num_kp
         self.jacobian_number = jacobian_number
-        self.__call__ = tf.function(
-            input_signature=[
+        input_signature=[
                 tf.TensorSpec([None, num_kp, 2], tf.float32),
                 tf.TensorSpec([None, jacobian_number, 2, 2], tf.float32),
                 tf.TensorSpec([num_kp, 2], tf.float32),
@@ -875,7 +887,12 @@ class ProcessKpDriving(tf.Module):
                 tf.TensorSpec((), tf.bool),
                 tf.TensorSpec((), tf.bool),
             ]
-        )(self.__call__)
+        if estimate_jacobian:
+            self.__call__ = tf.function(input_signature=input_signature)(self.__call__)
+        else:
+            for to_remove in [input_signature[1], input_signature[3], input_signature[5], input_signature[7]]:
+                input_signature.remove(to_remove)
+            self.__call__ = tf.function(input_signature=input_signature)(self.call_nojacobian)
         super(ProcessKpDriving, self).__init__()
 
     def __call__(
@@ -900,27 +917,45 @@ class ProcessKpDriving(tf.Module):
         kp_driving = tf.where((use_relative_movement & (ones > 0)), kp_new, kp_driving)
         kp_driving = tf.reshape(kp_driving, (-1, self.num_kp, 2))
         
-        if self.estimate_jacobian:
-            kp_driving_initial_jacobian = kp_driving_initial_jacobian[None]
-            inv_kp_driving_initial_jacobian = batch_batch_four_by_four_inv(kp_driving_initial_jacobian)
-            inv_kp_driving_initial_jacobian = tf.tile(inv_kp_driving_initial_jacobian, (tf.shape(kp_driving_jacobian)[0], 1, 1, 1))
+        kp_driving_initial_jacobian = kp_driving_initial_jacobian[None]
+        inv_kp_driving_initial_jacobian = batch_batch_four_by_four_inv(kp_driving_initial_jacobian)
+        inv_kp_driving_initial_jacobian = tf.tile(inv_kp_driving_initial_jacobian, (tf.shape(kp_driving_jacobian)[0], 1, 1, 1))
 
-            res_kp_driving_jacobian = tf.reshape(kp_driving_jacobian, (-1, 2, 2))
-            inv_kp_driving_initial_jacobian = tf.reshape(inv_kp_driving_initial_jacobian, (-1, 2, 2))
-            jacobian_diff = res_kp_driving_jacobian @ inv_kp_driving_initial_jacobian  # b kp 2 2
-            jacobian_diff = tf.reshape(jacobian_diff, (-1, 2, 2))
+        res_kp_driving_jacobian = tf.reshape(kp_driving_jacobian, (-1, 2, 2))
+        inv_kp_driving_initial_jacobian = tf.reshape(inv_kp_driving_initial_jacobian, (-1, 2, 2))
+        jacobian_diff = res_kp_driving_jacobian @ inv_kp_driving_initial_jacobian  # b kp 2 2
+        jacobian_diff = tf.reshape(jacobian_diff, (-1, 2, 2))
 
-            kp_source_jacobian = tf.tile(kp_source_jacobian, (tf.shape(kp_driving)[0], 1, 1, 1))
-            kp_source_jacobian = tf.reshape(kp_source_jacobian, (-1, 2, 2))
-            new_kp_driving_jacobian = jacobian_diff @ kp_source_jacobian
-            new_kp_driving_jacobian = tf.reshape(new_kp_driving_jacobian, (-1, self.jacobian_number, 2, 2))
-            kp_driving_jacobian = tf.reshape(kp_driving_jacobian, (-1, self.jacobian_number, 2, 2))        
-            ones = kp_driving_jacobian * 0.0 + 1.0
-            new_kp_driving_jacobian = tf.where(use_relative_jacobian, new_kp_driving_jacobian, kp_driving_jacobian)
-            new_kp_driving_jacobian = tf.where(use_relative_movement, new_kp_driving_jacobian, kp_driving_jacobian)
-            return kp_driving, new_kp_driving_jacobian
-        else:
-            return kp_driving
+        kp_source_jacobian = tf.tile(kp_source_jacobian, (tf.shape(kp_driving)[0], 1, 1, 1))
+        kp_source_jacobian = tf.reshape(kp_source_jacobian, (-1, 2, 2))
+        new_kp_driving_jacobian = jacobian_diff @ kp_source_jacobian
+        new_kp_driving_jacobian = tf.reshape(new_kp_driving_jacobian, (-1, self.jacobian_number, 2, 2))
+        kp_driving_jacobian = tf.reshape(kp_driving_jacobian, (-1, self.jacobian_number, 2, 2))        
+        ones = kp_driving_jacobian * 0.0 + 1.0
+        new_kp_driving_jacobian = tf.where(use_relative_jacobian, new_kp_driving_jacobian, kp_driving_jacobian)
+        new_kp_driving_jacobian = tf.where(use_relative_movement, new_kp_driving_jacobian, kp_driving_jacobian)
+        return kp_driving, new_kp_driving_jacobian
+    
+    def call_nojacobian(self, kp_driving, kp_driving_jacobian, 
+        kp_driving_initial, kp_source, use_relative_movement, adapt_movement_scale):
+        
+        kp_driving_initial = kp_driving_initial[None]
+
+        source_area = self.convex_hull_area(kp_source)
+        driving_area = self.convex_hull_area(kp_driving_initial)
+        scale = tf.sqrt(source_area) / tf.sqrt(driving_area)
+        ones = scale * 0.0 + 1.0
+        scale = tf.where(adapt_movement_scale, scale, ones)[None][None][None]  # (10,)'
+        kp_value_diff = kp_driving - kp_driving_initial
+        kp_value_diff = kp_value_diff * scale
+
+        kp_new = kp_value_diff + kp_source
+        ones = kp_new * 0.0 + 1.0
+        
+        kp_driving = tf.where((use_relative_movement & (ones > 0)), kp_new, kp_driving)
+        kp_driving = tf.reshape(kp_driving, (-1, self.num_kp, 2))        
+        return kp_driving
+       
 
     @tf.autograph.experimental.do_not_convert
     def convex_hull_area(self, X):
