@@ -8,8 +8,8 @@ Original PyTorch version can be found at [AliaksandrSiarohin/first-order-model](
 
 ## run.py and build.py CLI
 ```
-usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--model MODEL] [--source_image SOURCE_IMAGE] [--driving_video DRIVING_VIDEO] [--output OUTPUT]
-              [--dontappend] [--relative] [--adapt] [--frames FRAMES] [--batchsize BATCH_SIZE] [--profile]
+usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--datamode {file,dataset}] [--model MODEL] [--source_image SOURCE_IMAGE] [--driving_video DRIVING_VIDEO]
+              [--output OUTPUT] [--dontappend] [--relative] [--adapt] [--frames FRAMES] [--batchsize BATCH_SIZE] [--profile]
 
 Run inference
 
@@ -17,12 +17,14 @@ optional arguments:
   -h, --help            show this help message and exit
   --target {direct,savedmodel,tflite}
                         model version to run (between running the model directly, running the model's saved_model, and running its converted tflite
+  --datamode {file,dataset}
+                        Data input mode (CLI-given file or config-defined dataset)
   --model MODEL         model name
   --source_image SOURCE_IMAGE
                         source image path for file datamode
   --driving_video DRIVING_VIDEO
                         driving video path for file datamode
-  --output OUTPUT       output file
+  --output OUTPUT       output file name
   --dontappend          don't append format name and .mp4 to the output filename
   --relative            relative kp mode
   --adapt               adapt movement to the proportion between the sizes of subjects in the input image and the driving video
@@ -78,7 +80,6 @@ Cool. Place checkpoint "{name}-cpk.pth.tar" in ./checkpoint, place "{name}-256.y
  * Making the explicit training-disabling bools dependent on an argument in module inits. (model.trainable and trainable args in BatchNomralization inits should use the passed values; trainable should still be false for AntiAliasInterpolation2ds's kernel).
  * Implementing original's GeneratorFullModel and DiscriminatorFullModel
  * Implementing the train loop from the original's train.py, with correct handling and passing of all the items in  model config yml's train_params.
- * Implementing the original's dataset loading and augmentation utilities (those would be relatively straightforward to port)
  * Adding save_weights and load_weights to the KpDetector and Generator modules for, you guessed it, saving and loading weights. Just calling the wrapped models' respective functions should work.
  * Optionally, implementing the original's logging and visualization utilities
  
@@ -100,7 +101,7 @@ Hack-around to make calling from outside not too ugly (though I guess I can't re
 
 **Can the code be significantly optimized further?**
 
-A: Probably not. TensorBoard profiler and TF Lite benchmarking tool both show that almost all of the inference time is spent on conv2d ops for both generator and detector, and the time spent on process_kp_driving is already very short. If you do have any ideas, pull request away! Out of code, all the usual post-training tf lite optimizations can be added to reduce .tflite sizes and to speed up inference. Refer to [TF Lite optimization guide](https://www.tensorflow.org/lite/performance/model_optimization) and to [tensorflow-model-optimization documentation's weight clustering guide](https://www.tensorflow.org/model_optimization/guide/clustering/clustering_example).
+Probably not. TensorBoard profiler and TF Lite benchmarking tool both show that almost all of the inference time is spent on conv2d ops for both generator and detector, and the time spent on process_kp_driving is already very short. If you do have any ideas, pull request away! Out of code, all the usual post-training tf lite optimizations can be added to reduce .tflite sizes and to speed up inference. Refer to [TF Lite optimization guide](https://www.tensorflow.org/lite/performance/model_optimization) and to [tensorflow-model-optimization documentation's weight clustering guide](https://www.tensorflow.org/model_optimization/guide/clustering/clustering_example).
 
 **Could I make a single keras model that receives source image and driving video and outputs the predicted video?**
 
@@ -116,7 +117,7 @@ Yes. You can do that by calling build\_generator\_base and build_kp_detector_bas
 <details>
   <summary>...</summary>
   
->! So, the full story is, I was in an emergency situation financially in Spring 2020 while finishing my last university semester, so I registered on Upwork to work for unreasonably low pay. I agreed to do this project for $50 under a one week deadline. I couldn't make the deadline, and got my first big panic attack as a reward. I couldn't get myself to contact the employer, and I desperately tried to finish the project, adding and optimizing one part after another. By the time I got it to a state in which I could hand it in as a deliverable (pretty close to the initial commit of this repo), too much time had passed and I couldn't make myself open the messages and write the guys about the situations. At the end just logging in or looking and this code was giving me anxiety, and I made my sister close my Upwork account and dropped this project, along with one other. Then a year passed, and a friend asked me to do a funny motion transfer video to make a still image of David Beckham talk for my sister's birthday, and I did have the code laying around and didn't want to pull the original repo again, so I did it with my version. Then I looked through the code and realized that this was in no way a $50, one-week project, and that I could be proud of myself for doing it regardless of the outcome. So I made this repo and open-sourced the code. There's a lesson to be learned here, but I feel like I'm the only one who needed to learn it. And if a potential employer is reading this, uhh, just ignore this whole paragraph, everyone has their highs and lows and all.
+>So, the full story is, I was in an emergency situation financially in Spring 2020 while finishing my last university semester, so I registered on Upwork to work for unreasonably low pay. I agreed to do this project for $50 under a one week deadline. I couldn't make the deadline, and got my first big panic attack as a reward. I couldn't get myself to contact the employer, and I desperately tried to finish the project, adding and optimizing one part after another. By the time I got it to a state in which I could hand it in as a deliverable (pretty close to the initial commit of this repo), too much time had passed and I couldn't make myself open the messages and write the guys about the situations. At the end just logging in or looking and this code was giving me anxiety, and I made my sister close my Upwork account and dropped this project, along with one other. Then a year passed, and a friend asked me to do a funny motion transfer video to make a still image of David Beckham talk for my sister's birthday, and I did have the code laying around and didn't want to pull the original repo again, so I did it with my version. Then I looked through the code and realized that this was in no way a $50, one-week project, and that I could be proud of myself for doing it regardless of the outcome. So I made this repo and open-sourced the code. There's a lesson to be learned here, but I feel like I'm the only one who needed to learn it. And if a potential employer is reading this, uhh, just ignore this whole paragraph, everyone has their highs and lows and all.
 </details>
 
 ## Bragging section
@@ -133,6 +134,7 @@ Boy, was making this thing work with the original's checkpoints with tf lite and
  * Do some seriously complicated math to derive equivalent sequences of tensor reshapes and transpositions
  * Take all those tf ops that are really pretty and elegant and replace them with esoteric magic so that tf doesn't complain
  * Export intermediate outputs during inference at two dozen places in both tf and torch code to manually compare differences until they evaporated
+ * Reverse-engineer pytorch's checkpoint loader (this wasn't strictly necessary, and earlier I just used torch.load to load the checkpoints, but having torch as a requirement in a tf port of a torch project seemed in bad taste)
  * Some other stuff I barely remember
 
 In the end, it actually turned out a little faster than the original. Kudos to me.
