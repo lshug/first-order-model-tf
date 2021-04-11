@@ -298,7 +298,7 @@ class ColorJitter(object):
             # Create img transform function sequence
             img_transforms = []
             if brightness is not None:
-                img_transforms.append(lambda img: image.adjust_brightness(img, brightness))
+                img_transforms.append(lambda img: image.adjust_brightness(img, np.mean(keras_image.img_to_array(img)) * brightness - np.mean(keras_image.img_to_array(img))))
             if saturation is not None:
                 img_transforms.append(lambda img: image.adjust_saturation(img, saturation))
             if hue is not None:
