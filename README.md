@@ -35,7 +35,8 @@ optional arguments:
 ```
 
 ```
-usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--tfjs] [--jsquantize {none,float16,uint16,uint8}]
+usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--predictiononly] [--tfjs]
+                [--jsquantize {none,float16,uint16,uint8}]
 
 Build saved_model, tflite, and tf.js modules from checkpoints and configs.
 
@@ -45,10 +46,10 @@ optional arguments:
   -a                    build models for all config files
   --module {all,kp_detector,generator,process_kp_driving}
                         module to build
+  --predictiononly      build the generator so that it only outputs predictions
   --tfjs                build tf.js models, requires tensorflowjs_converter
   --jsquantize {none,float16,uint16,uint8}
                         quantization to apply during tf.js conversions
-
 ```
 
 ## Inference details
@@ -73,6 +74,10 @@ Place checkpoint "{name}-cpk.pth.tar" in ./checkpoint, place "{name}-256.yml" in
 **But my model uses frame shapes that are not 256x256!**
 
 Cool. Place checkpoint "{name}-cpk.pth.tar" in ./checkpoint, place "{name}-256.yml" in ./config. 
+
+**Why is TF 2.5.0rc0 required instead of the stable 2.4.1?**
+
+Input and output names of savedmodel-converted tflite models are based on the names of the input and ouput tensors instead of their keys in the wrapped concrete function's SignatureDef. This makes it a requirement to save the tensor-name-to-output-name mappings externally and load them when rebuilding a function out of the tflite interpreter's methods that has the same output format as the savedmodel's callable signature, and that's not pretty. Not to mention the fact that the whole process of finding input/output indices, manually resizing input tensors, allocating tensors, invoking the interpreter, and manually returning the values of the output tensors requires boilerplate of cosmic proporitons (see testlite.py in older commits for a good example). Starting from TF 2.5.0, tflite interpreter can return a signature runner, which has the same input-output scheme as savedmodel's signature, and gets rid of all the boilerplate. Everything other than running run.py with --target tflite (including actually building the tflite models) should work just fine on 2.4.1.
 
 **What would it take to add training support?**
 

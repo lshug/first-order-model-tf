@@ -28,13 +28,13 @@ def save_multiple_pngs(path, predictions):
     for idx, im in enumerate((255 * predictions).astype(np.uint8)):
         imageio.imwrite(f'{path}/{idx}.png', im)
 
-def load_models_direct(model):
+def load_models_direct(model, prediction_only=False):
     config_path = f"config/{model}-256.yaml"
     with open(config_path) as f:
         config = yaml.load(f, Loader=yaml.Loader)
     frame_shape = config["dataset_params"]["frame_shape"]
     kp_detector = build_kp_detector(f"./checkpoint/{model}-cpk.pth.tar", **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"])
-    generator_base = build_generator(f"./checkpoint/{model}-cpk.pth.tar", **config["dataset_params"], **config["model_params"]["generator_params"], 
+    generator_base = build_generator(f"./checkpoint/{model}-cpk.pth.tar", not prediction_only, **config["dataset_params"], **config["model_params"]["generator_params"], 
                                      **config["model_params"]["common_params"], single_jacobian_map=kp_detector.single_jacobian_map)
     if config["model_params"]["common_params"]["estimate_jacobian"] == True:
         generator = lambda arr: generator_base(arr[0], arr[1], arr[2], arr[3], arr[4])
@@ -43,23 +43,19 @@ def load_models_direct(model):
     process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"], single_jacobian_map=kp_detector.single_jacobian_map)
     return kp_detector, process_kp_driving, generator, None
 
-def load_models_savedmodel(model):
+def load_models_savedmodel(model, **kwargs):
     kp_detector_loader = tf.saved_model.load("saved_models/" + model + "/kp_detector")
     kp_detector_base = kp_detector_loader.signatures["serving_default"]
     generator_loader = tf.saved_model.load("saved_models/" + model + "/generator")
     generator_base = generator_loader.signatures["serving_default"]
+    generator_outs = list(generator_base.structured_outputs.keys())
     process_kp_driving_loader = tf.saved_model.load("saved_models/" + model + "/process_kp_driving")
     process_kp_driving_base = process_kp_driving_loader.signatures["serving_default"]
     estimate_jacobian = len(kp_detector_base.outputs) == 2
+    kp_detector = lambda l: kp_detector_base(img=l)
     if estimate_jacobian:
-        def kp_detector(l):
-            kp_detector_out = kp_detector_base(img=l)
-            return kp_detector_out["output_0"], kp_detector_out["output_1"]
-        
-        generator = lambda l: generator_base(source_image=l[0], kp_driving=l[1], kp_driving_jacobian=l[2], kp_source=l[3], kp_source_jacobian=l[4])["output_0"]
-        
-        def process_kp_driving(l, m, n, o, p, q, r, s, t):
-            process_kp_driving_out = process_kp_driving_base(
+        generator = lambda l: generator_base(source_image=l[0], kp_driving=l[1], kp_driving_jacobian=l[2], kp_source=l[3], kp_source_jacobian=l[4])
+        process_kp_driving = lambda l, m, n, o, p, q, r, s, t: process_kp_driving_base(
                 kp_driving=l,
                 kp_driving_jacobian=m,
                 kp_driving_initial=n,
@@ -70,127 +66,46 @@ def load_models_savedmodel(model):
                 use_relative_jacobian=tf.convert_to_tensor(s),
                 adapt_movement_scale=tf.convert_to_tensor(t),
             )
-            return process_kp_driving_out["output_0"], process_kp_driving_out["output_1"]    
     else:
-        def kp_detector(l):
-            kp_detector_out = kp_detector_base(img=l)
-            return kp_detector_out["output_0"]
-        
-        generator = lambda l: generator_base(source_image=l[0], kp_driving=l[1], kp_source=l[2])["output_0"]
-        
-        def process_kp_driving(l, m, n, o, p):
-            process_kp_driving_out = process_kp_driving_base(
-                kp_driving=l,
-                kp_driving_initial=m,
-                kp_source=n,
-                use_relative_movement=tf.convert_to_tensor(o),
-                adapt_movement_scale=tf.convert_to_tensor(p),
-            )
-            return process_kp_driving_out["output_0"]
+        generator = lambda l: generator_base(source_image=l[0], kp_driving=l[1], kp_source=l[2])
+        process_kp_driving = lambda l, m, n, o, p: process_kp_driving_base(
+                    kp_driving=l,
+                    kp_driving_initial=m,
+                    kp_source=n,
+                    use_relative_movement=tf.convert_to_tensor(o),
+                    adapt_movement_scale=tf.convert_to_tensor(p),
+                )
     return kp_detector, process_kp_driving, generator, [[kp_detector_loader, kp_detector_base], [generator_loader, generator_base], [process_kp_driving_loader, process_kp_driving_base]]
 
-def load_models_tflite(model):
+def load_models_tflite(model, **kwargs):
     kp_detector_interpreter = tf.lite.Interpreter(model_path="tflite/" + model + "/kp_detector.tflite")
     generator_interpreter = tf.lite.Interpreter(model_path="tflite/" + model + "/generator.tflite")
     process_kp_driving_interpreter = tf.lite.Interpreter(model_path="tflite/" + model + "/process_kp_driving.tflite")
+    kp_detector_base = kp_detector_interpreter.get_signature_runner()
+    generator_base = generator_interpreter.get_signature_runner()
+    process_kp_driving_base = process_kp_driving_interpreter.get_signature_runner()
     estimate_jacobian = len(kp_detector_interpreter.get_output_details()) == 2
+    kp_detector = lambda img: kp_detector_base(img=img)
     if estimate_jacobian:
-        kp_detector_input_index = kp_detector_interpreter.get_input_details()[0]["index"]
-        kp_detector_output1_index = [x for x in kp_detector_interpreter.get_output_details() if x["shape"].size == 3][0]["index"]
-        kp_detector_output2_index = [x for x in kp_detector_interpreter.get_output_details() if x["shape"].size == 4][0]["index"]
-        def kp_detector(img):
-            kp_detector_interpreter.resize_tensor_input(kp_detector_input_index, img.shape)
-            kp_detector_interpreter.allocate_tensors()
-            kp_detector_interpreter.set_tensor(kp_detector_input_index, img)
-            kp_detector_interpreter.invoke()
-            return kp_detector_interpreter.get_tensor(kp_detector_output1_index), kp_detector_interpreter.get_tensor(kp_detector_output2_index)
-
-        source_image_index = [x for x in generator_interpreter.get_input_details() if "source_image" in x["name"]][0]["index"]
-        generator_kp_driving_index = [x for x in generator_interpreter.get_input_details() if "kp_driving" in x["name"] and "jacobian" not in x["name"]][0]["index"]
-        generator_kp_driving_jacobian_index = [x for x in generator_interpreter.get_input_details() if "kp_driving_jacobian" in x["name"]][0]["index"]
-        generator_kp_source_index = [x for x in generator_interpreter.get_input_details() if "kp_source" in x["name"] and "jacobian" not in x["name"]][0]["index"]
-        generator_kp_source_jacobian_index = [x for x in generator_interpreter.get_input_details() if "kp_source_jacobian" in x["name"]][0]["index"]
-        generator_output_index = generator_interpreter.get_output_details()[0]["index"]
-        def generator(inputs):
-            generator_interpreter.resize_tensor_input(source_image_index, inputs[0].shape)
-            generator_interpreter.resize_tensor_input(generator_kp_driving_index, inputs[1].shape)
-            generator_interpreter.resize_tensor_input(generator_kp_driving_jacobian_index, inputs[2].shape)
-            generator_interpreter.resize_tensor_input(generator_kp_source_index, inputs[3].shape)
-            generator_interpreter.resize_tensor_input(generator_kp_source_jacobian_index, inputs[4].shape)
-            generator_interpreter.allocate_tensors()
-            generator_interpreter.set_tensor(source_image_index, inputs[0])
-            generator_interpreter.set_tensor(generator_kp_driving_index, inputs[1])
-            generator_interpreter.set_tensor(generator_kp_driving_jacobian_index, inputs[2])
-            generator_interpreter.set_tensor(generator_kp_source_index, inputs[3])
-            generator_interpreter.set_tensor(generator_kp_source_jacobian_index, inputs[4])
-            generator_interpreter.invoke()
-            return generator_interpreter.get_tensor(generator_output_index)
-
-        process_kp_driving_kp_driving_index = [x for x in process_kp_driving_interpreter.get_input_details() if "kp_driving" in x["name"] and "jacobian" not in x["name"] and 'initial' not in x['name']][0]["index"]
-        process_kp_driving_kp_driving_jacobian_index = [x for x in process_kp_driving_interpreter.get_input_details() if "kp_driving_jacobian" in x["name"]][0]["index"]
-        process_kp_driving_kp_driving_initial_index = [x for x in process_kp_driving_interpreter.get_input_details() if "kp_driving_initial" in x["name"] and "jacobian" not in x["name"]][0]["index"]
-        process_kp_driving_kp_driving_initial_jacobian_index = [x for x in process_kp_driving_interpreter.get_input_details() if "kp_driving_initial_jacobian" in x["name"]][0]["index"]
-        process_kp_driving_kp_source_index = [x for x in process_kp_driving_interpreter.get_input_details() if "kp_source" in x["name"] and "jacobian" not in x["name"]][0]["index"]
-        process_kp_driving_kp_source_jacobianindex = [x for x in process_kp_driving_interpreter.get_input_details() if "kp_source_jacobian" in x["name"]][0]["index"]
-        process_kp_driving_relative_index = [x for x in process_kp_driving_interpreter.get_input_details() if "use_relative_movement" in x["name"]][0]["index"]
-        process_kp_driving_relative_jacobian_index = [x for x in process_kp_driving_interpreter.get_input_details() if "use_relative_jacobian" in x["name"]][0]["index"]
-        process_kp_driving_adapt_movement_scale_index = [x for x in process_kp_driving_interpreter.get_input_details() if "adapt_movement_scale" in x["name"]][0]["index"]
-        process_kp_driving_output1_index = [x for x in process_kp_driving_interpreter.get_output_details() if x["shape"].size == 3][0]["index"]
-        process_kp_driving_output2_index = [x for x in process_kp_driving_interpreter.get_output_details() if x["shape"].size == 4][0]["index"]
-        def process_kp_driving(kp_driving, kp_driving_jacobian, kp_driving_initial, kp_driving_initial_jacobian, kp_source, kp_source_jacobian, use_relative_movement, use_relative_jacobian, adapt_movement_scale):
-            process_kp_driving_interpreter.resize_tensor_input(process_kp_driving_kp_driving_index, kp_driving.shape)
-            process_kp_driving_interpreter.resize_tensor_input(process_kp_driving_kp_driving_jacobian_index, kp_driving_jacobian.shape)        
-            process_kp_driving_interpreter.allocate_tensors()
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_kp_driving_index, kp_driving)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_kp_driving_jacobian_index, kp_driving_jacobian)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_kp_driving_initial_index, kp_driving_initial)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_kp_driving_initial_jacobian_index, kp_driving_initial_jacobian)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_kp_source_index, kp_source)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_kp_source_jacobianindex, kp_source_jacobian)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_relative_index, use_relative_movement)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_relative_jacobian_index, use_relative_jacobian)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_adapt_movement_scale_index, adapt_movement_scale)
-            process_kp_driving_interpreter.invoke()
-            return process_kp_driving_interpreter.get_tensor(process_kp_driving_output1_index), process_kp_driving_interpreter.get_tensor(process_kp_driving_output2_index)
+        generator = lambda l: generator_base(source_image=l[0], kp_driving=l[1], kp_driving_jacobian=l[2], kp_source=l[3], kp_source_jacobian=l[4])
+        process_kp_driving = lambda l, m, n, o, p, q, r, s, t: process_kp_driving_base(
+                kp_driving=l,
+                kp_driving_jacobian=m,
+                kp_driving_initial=n,
+                kp_driving_initial_jacobian=o,
+                kp_source=p,
+                kp_source_jacobian=q,
+                use_relative_movement=tf.convert_to_tensor(r),
+                use_relative_jacobian=tf.convert_to_tensor(s),
+                adapt_movement_scale=tf.convert_to_tensor(t),
+                )
     else:
-        kp_detector_input_index = kp_detector_interpreter.get_input_details()[0]["index"]
-        kp_detector_output1_index = kp_detector_interpreter.get_output_details()[0]["index"]        
-        def kp_detector(img):
-            kp_detector_interpreter.resize_tensor_input(kp_detector_input_index, img.shape)
-            kp_detector_interpreter.allocate_tensors()
-            kp_detector_interpreter.set_tensor(kp_detector_input_index, img)
-            kp_detector_interpreter.invoke()
-            return kp_detector_interpreter.get_tensor(kp_detector_output1_index)
-
-        source_image_index = [x for x in generator_interpreter.get_input_details() if "source_image" in x["name"]][0]["index"]
-        generator_kp_driving_index = [x for x in generator_interpreter.get_input_details() if "kp_driving" in x["name"]][0]["index"]
-        generator_kp_source_index = [x for x in generator_interpreter.get_input_details() if "kp_source" in x["name"]][0]["index"]
-        generator_output_index = generator_interpreter.get_output_details()[0]["index"]
-        def generator(inputs):
-            generator_interpreter.resize_tensor_input(source_image_index, inputs[0].shape)
-            generator_interpreter.resize_tensor_input(generator_kp_driving_index, inputs[1].shape)
-            generator_interpreter.resize_tensor_input(generator_kp_source_index, inputs[2].shape)
-            generator_interpreter.allocate_tensors()
-            generator_interpreter.set_tensor(source_image_index, inputs[0])
-            generator_interpreter.set_tensor(generator_kp_driving_index, inputs[1])
-            generator_interpreter.set_tensor(generator_kp_source_index, inputs[2])
-            generator_interpreter.invoke()
-            return generator_interpreter.get_tensor(generator_output_index)
-
-        process_kp_driving_kp_driving_index = [x for x in process_kp_driving_interpreter.get_input_details() if "kp_driving" in x["name"] and "jacobian" not in x["name"] and 'initial' not in x['name']][0]["index"]
-        process_kp_driving_kp_driving_initial_index = [x for x in process_kp_driving_interpreter.get_input_details() if "kp_driving_initial" in x["name"] and "jacobian" not in x["name"]][0]["index"]
-        process_kp_driving_kp_source_index = [x for x in process_kp_driving_interpreter.get_input_details() if "kp_source" in x["name"] and "jacobian" not in x["name"]][0]["index"]
-        process_kp_driving_relative_index = [x for x in process_kp_driving_interpreter.get_input_details() if "use_relative_movement" in x["name"]][0]["index"]
-        process_kp_driving_adapt_movement_scale_index = [x for x in process_kp_driving_interpreter.get_input_details() if "adapt_movement_scale" in x["name"]][0]["index"]
-        process_kp_driving_output1_index = process_kp_driving_interpreter.get_output_details()[0]["index"]
-        def process_kp_driving(kp_driving, kp_driving_jacobian, kp_driving_initial, kp_driving_initial_jacobian, kp_source, kp_source_jacobian, use_relative_movement, use_relative_jacobian, adapt_movement_scale):
-            process_kp_driving_interpreter.resize_tensor_input(process_kp_driving_kp_driving_index, kp_driving.shape)
-            process_kp_driving_interpreter.allocate_tensors()
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_kp_driving_index, kp_driving)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_kp_driving_initial_index, kp_driving_initial)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_kp_source_index, kp_source)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_relative_index, use_relative_movement)
-            process_kp_driving_interpreter.set_tensor(process_kp_driving_adapt_movement_scale_index, adapt_movement_scale)
-            process_kp_driving_interpreter.invoke()
-            return process_kp_driving_interpreter.get_tensor(process_kp_driving_output1_index)
+        generator = lambda l: generator_base(source_image=l[0], kp_driving=l[1], kp_source=l[2])
+        process_kp_driving = lambda l, m, n, o, p: process_kp_driving_base(
+                    kp_driving=l,
+                    kp_driving_initial=m,
+                    kp_source=n,
+                    use_relative_movement=tf.convert_to_tensor(o),
+                    adapt_movement_scale=tf.convert_to_tensor(p),
+                    )
     return kp_detector, process_kp_driving, generator, [kp_detector_interpreter, process_kp_driving_interpreter, generator_interpreter]

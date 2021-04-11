@@ -31,7 +31,7 @@ with open(config_path) as f:
 frame_shape = config['dataset_params']['frame_shape']
 num_channels = config['model_params']['common_params']['num_channels']
 
-kp_detector, process_kp_driving, generator, _interpreter_obj_list = load_funcs[parser.target](parser.model) 
+kp_detector, process_kp_driving, generator, _interpreter_obj_list = load_funcs[parser.target](parser.model, prediction_only=parser.datamode=='file') 
 format_appends = {'direct':'', 'savedmodel':'.savedmodel', 'tflite':'.tflite'}
 
 # if parser.mode == 'animate':

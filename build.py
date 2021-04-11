@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 js_command_base = "tensorflowjs_converter --control_flow_v2=True --input_format=tf_saved_model --metadata= --saved_model_tags=serve --signature_name=serving_default --strip_debug_ops=True --weight_shard_size_bytes=4194304 saved_models/{0}/{1} js/{0}/{1}"
 
-def build(checkpoint_path, config_path, output_name, module, tfjs, jsquantize):
+def build(checkpoint_path, config_path, output_name, module, prediction_only, tfjs, jsquantize):
     js_command = js_command_base
     if jsquantize != 'none':
         js_command = js_command_base.replace('--metadata= ', '--metadata= --quantize_'+jsquantize+'=* ')
@@ -31,7 +31,7 @@ def build(checkpoint_path, config_path, output_name, module, tfjs, jsquantize):
         single_jacobian_map = False
     
     if module == 'kp_detector' or module=='all':
-        kp_detector = build_kp_detector(checkpoint_path, **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"])
+        kp_detector = build_kp_detector(checkpoint_path, not prediction_only, **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"])
         print(f"{output_name} - kp_detector")
         tf.saved_model.save(kp_detector, "saved_models/" + output_name + "/kp_detector", kp_detector.__call__.get_concrete_function())
         kp_detector_converter = tf.lite.TFLiteConverter.from_saved_model("saved_models/" + output_name + "/kp_detector")
@@ -70,6 +70,7 @@ parser = argparse.ArgumentParser(description="Build saved_model, tflite, and tf.
 parser.add_argument("--model", action="store", default="vox", help="model config and checkpoint to load")
 parser.add_argument("-a", action="store_true", help="build models for all config files")
 parser.add_argument('--module', choices=['all', 'kp_detector', 'generator', 'process_kp_driving'], default='all', help="module to build")
+parser.add_argument('--predictiononly', action="store_true", help="build the generator so that it only outputs predictions")
 parser.add_argument('--tfjs', action='store_true', help="build tf.js models, requires tensorflowjs_converter")
 parser.add_argument('--jsquantize', choices=['none', 'float16', 'uint16', 'uint8'], default='float16',
                     help="quantization to apply during tf.js conversions")
@@ -81,13 +82,13 @@ if not parser.a:
     checkpoint_path = f"checkpoint/{parser.model}-cpk.pth.tar"
     config_path = f"config/{parser.model}-256.yaml"
     output_name = config_path.split("/")[-1].split("256")[0][:-1]
-    build(checkpoint_path, config_path, output_name, parser.module, parser.tfjs, parser.jsquantize)
+    build(checkpoint_path, config_path, output_name, parser.module, parser.predictiononly, parser.tfjs, parser.jsquantize)
 else:
     configs = os.listdir("config/")
     checkpoints = ["checkpoint/" + x.split("256")[0] + "cpk.pth.tar" for x in configs]
     output_names = [x.split("/")[-1].split("256")[0][:-1] for x in configs]
     configs = ["config/" + x for x in configs]
     for i, config in enumerate(tqdm(configs)):
-        build(checkpoints[i], config, output_names[i], parser.module, parser.tfjs, parser.jsquantize)
+        build(checkpoints[i], config, output_names[i], parser.module, parser.predictiononly, parser.tfjs, parser.jsquantize)
 
 print("Done.")
