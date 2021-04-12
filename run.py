@@ -63,7 +63,7 @@ if parser.mode == 'animate':
             result_name = f'{idx}_{pair["source_name"]}_{pair["driving_name"]}.png'
             full_outdir = outdir + '/' + result_name
             save_frames_png(full_outdir, predictions)
-            if len(visualizations) != 0:
+            if visualizations is not None:
                 image_name = result_name + config['animate_params']['format']
                 visualization_filename = outdir + '/' + image_name
                 save_visualization(visualization_filename, visualizations)
