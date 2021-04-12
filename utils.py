@@ -24,9 +24,13 @@ def load_image_video_pair(img_path, video_path, frames=-1, frame_shape=(256, 256
 def save_video(path, predictions, fps):
     return imageio.mimsave(path, [img_as_ubyte(frame) for frame in predictions], fps=fps)
 
-def save_multiple_pngs(path, predictions):
-    for idx, im in enumerate((255 * predictions).astype(np.uint8)):
-        imageio.imwrite(f'{path}/{idx}.png', im)
+def save_visualization(path, visualizations):
+    return imageio.mimsave(path, visualizations)
+
+def save_frames_png(path, predictions):
+    prediction = np.concatenate(predictions, 1)
+    prediction = (255 * prediction).astype(np.uint8)
+    imageio.imwrite(path, prediction)
 
 def load_models_direct(model, prediction_only=False):
     config_path = f"config/{model}-256.yaml"

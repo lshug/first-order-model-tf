@@ -1,5 +1,6 @@
 import math
 import tensorflow as tf
+from logger import Visualizer
 from tqdm import tqdm
 
 # General inference scheme:
@@ -7,10 +8,11 @@ from tqdm import tqdm
 # Step 2: get kp_driving in batches
 # Step 3: process kp_driving
 # Step 4: get predictions in batches
-def animate(source_image, driving_video, generator, kp_detector, process_kp_driving, batch_size=4, use_relative_movement=True, use_relative_jacobian=True, adapt_movement_scale=True, profile=False):
+def animate(source_image, driving_video, generator, kp_detector, process_kp_driving, 
+            use_relative_movement=True, use_relative_jacobian=True, adapt_movement_scale=True,
+            batch_size=4, profile=False, visualizer_params=None):
     l = len(driving_video)
     source_image = tf.convert_to_tensor(source_image, "float32")
-    
     
     if profile:
         tf.profiler.experimental.start("./log")
@@ -28,7 +30,9 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         kp_driving_out = kp_detector(driving_video_tensor)
         kp_driving_outs.append(kp_driving_out)
     kp_driving = {k:tf.concat([out[k] for out in kp_driving_outs], 0) for k in kp_source.keys()}
-    del driving_video
+    
+    if batch_size != 1 or visualizer_params is None:
+        del driving_video
     
     # Step 3: process kp_driving
     if estimate_jacobian:
@@ -43,6 +47,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
     
     # Step 4: get predictions in batches
     predictions = []
+    visualizations = []
     for i in tqdm(range(math.ceil(l / batch_size))):
         start = i * batch_size
         end = (i + 1) * batch_size
@@ -52,8 +57,18 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         else:
             out = generator([source_image, kp_driving_batch['value'], kp_source['value']])
         predictions.append(out['prediction'])
+        if batch_size == 1 and visualizer_params is not None:
+            out['kp_driving'] = {k:v[0] for k,v in kp_driving_batch.items()}
+            out['kp_source'] = kp_source
+            out['kp_norm'] = {k:v[i] for k,v in kp_norm.items()}
+            try:
+                del out['sparse_deformed']
+            except:
+                pass
+            visualization = Visualizer(**visualizer_params).visualize(source=source_image[0], driving=driving_video[i], out=out)
+            visualizations.append(visualization)
     
     if profile:
         tf.profiler.experimental.stop()
         
-    return tf.concat(predictions, 0).numpy()
+    return tf.concat(predictions, 0).numpy(), tf.concat(visualizations, 0).numpy()

@@ -764,13 +764,16 @@ def build_generator_base(
             deformation = BilinearInterpolate((x.shape[1], x.shape[2]))(deformation)
         x = layers.Lambda(lambda l: tf.tile(l[0], (tf.shape(l[1])[0], 1, 1, 1)), name="deformation_tile")([x, deformation])
         x = GridSample()([x, deformation])
-        deformed = x
         
         if estimate_occlusion_map:
             if occlusion_map.shape[1] != x.shape[1] or occlusion_map.shape[2] != x.shape[2]:
                 occlusion_map = BilinearInterpolate((x.shape[1], x.shape[2]))(occlusion_map)
             x = layers.Multiply(name="mult")([x, occlusion_map])
-
+            
+        if deformation.shape[1] != inp.shape[1] or deformation.shape[2] != inp.shape[2]:
+            deformation = BilinearInterpolate((inp.shape[1], inp.shape[2]))(deformation)
+        deformed = GridSample()([inp, deformation])
+        
     for i in range(num_bottleneck_blocks):
         x = ResBlock2d(x, min(max_features, block_expansion * (2 ** num_down_blocks)), name="bottleneckr" + str(i))
 
