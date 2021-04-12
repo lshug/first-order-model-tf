@@ -8,15 +8,19 @@ Original PyTorch version can be found at [AliaksandrSiarohin/first-order-model](
 
 ## run.py and build.py CLI
 ```
-usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--datamode {file,dataset}] [--model MODEL] [--source_image SOURCE_IMAGE] [--driving_video DRIVING_VIDEO]
-              [--output OUTPUT] [--dontappend] [--relative] [--adapt] [--frames FRAMES] [--batchsize BATCH_SIZE] [--profile]
+usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--mode {animate,reconstruction}] [--datamode {file,dataset}] [--model MODEL]
+              [--source_image SOURCE_IMAGE] [--driving_video DRIVING_VIDEO] [--output OUTPUT] [--dontappend] [--relative] [--adapt]
+              [--frames FRAMES] [--batchsize BATCH_SIZE] [--profile] [--visualizer]
 
 Run inference
 
 optional arguments:
   -h, --help            show this help message and exit
   --target {direct,savedmodel,tflite}
-                        model version to run (between running the model directly, running the model's saved_model, and running its converted tflite
+                        model version to run (between running the model directly, running the model's saved_model, and running its converted
+                        tflite
+  --mode {animate,reconstruction}
+                        Run mode (animate, reconstruct, or train)
   --datamode {file,dataset}
                         Data input mode (CLI-given file or config-defined dataset)
   --model MODEL         model name
@@ -32,6 +36,7 @@ optional arguments:
   --batchsize BATCH_SIZE
                         batch size
   --profile             enable tensorboard profiling
+  --visualizer          enable visualizer, only relevant for dataset datamode
 ```
 
 ```
