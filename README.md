@@ -86,7 +86,6 @@ Input and output names of savedmodel-converted tflite models are based on the na
  * Implementing original's GeneratorFullModel and DiscriminatorFullModel
  * Implementing the train loop from the original's train.py, with correct handling and passing of all the items in  model config yml's train_params.
  * Adding save_weights and load_weights to the KpDetector and Generator modules for, you guessed it, saving and loading weights. Just calling the wrapped models' respective functions should work.
- * Optionally, implementing the original's logging and visualization utilities
  
 **What the fuck is going on in convex_hull_area?**
 
