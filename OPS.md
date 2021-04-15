@@ -2,7 +2,7 @@
 
 ### Legend
 
-This file lists the TF Lite ops that are used in the three modules post-conversion, along with the notes about the ops' compatiblity with TF Lite's delegates. When TF Lite interpreter is using a delegate and encounters a non-compatible OP during runtime, it is forced to switch to CPU, which is quite expensive in terms of performance and memory, so avoiding such ops is preferrable. For this reason, I'm providing small guides to converting certain incompatible ops into series of compatible ops. Unfortunately there are certain ops that are necessary for the model and that cannot realistically be converted in such manner, these being: tensor tiling, gather_nd, batch matrix multiplication, dtype casting, taking a floor, summing, division, square root, logical operations and comparisons on bool tensors, ternary select, tensor transposition, and argmin.
+This file lists the TF Lite ops that are used in the three modules post-conversion, along with the notes about the ops' compatiblity with TF Lite's delegates. When TF Lite interpreter is using a delegate and encounters a non-compatible op during runtime, it is forced to switch to CPU, which is quite expensive in terms of performance and memory, so avoiding such ops is preferrable. For this reason, I'm providing small guides to converting certain incompatible ops into series of compatible ops. Unfortunately there are certain ops that are necessary for the model and that cannot realistically be converted in such manner, these being: tensor tiling, gather_nd, batch matrix multiplication, dtype casting, taking a floor, summing, division, square root, logical operations and comparisons on bool tensors, ternary select, tensor transposition, and argmin.
 
  * -: not supported by delegates
  * ~: not supported by coreml delegate, but supported by others
@@ -99,7 +99,7 @@ This file lists the TF Lite ops that are used in the three modules post-conversi
  * STRIDED_SLICE
  * SHAPE - * [3]
 
-### Arithmetic tf.where
+## Arithmetic tf.where
 
 If casting and square root were allowed, ```tf.where(conditional_bool, leftarg, rightarg)``` could be converted as follows (in pseudocode):
 
