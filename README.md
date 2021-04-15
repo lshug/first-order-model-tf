@@ -84,6 +84,9 @@ Cool. Place checkpoint "{name}-cpk.pth.tar" in ./checkpoint, place "{name}-256.y
 
 Input and output names of savedmodel-converted tflite models are based on the names of the input and ouput tensors instead of their keys in the wrapped concrete function's SignatureDef. This makes it a requirement to save the tensor-name-to-output-name mappings externally and load them when rebuilding a function out of the tflite interpreter's methods that has the same output format as the savedmodel's callable signature, and that's not pretty. Not to mention the fact that the whole process of finding input/output indices, manually resizing input tensors, allocating tensors, invoking the interpreter, and manually returning the values of the output tensors requires boilerplate of cosmic proporitons (see testlite.py in older commits for a good example). Starting from TF 2.5.0, tflite interpreter can return a signature runner, which has the same input-output scheme as savedmodel's signature, and gets rid of all the boilerplate. Everything other than running run.py with --target tflite (including actually building the tflite models) should work just fine on 2.4.1. In addition, a [tag](https://github.com/lshug/first-order-model-tf/tree/tf2.4.1) is available for the last commit at which everything, including animating on TF Lite models, was compatible with TF 2.4.1.
 
+**What ops are used in or necessary for the models?**
+See [OPS.MD]('./OPS.md') for the list of ops that are necessary for each of the three modules, along with notes about TF Lite delegate compatibility. The list is generated from tflite files, using tflite_ops function in utils.py. Directly built modules and SavedModels use some other ops, but those are fused/converted/erased during tflite conversion and aren't actually necessary for the model's functioning.
+
 **What would it take to add training support?**
 
  * Implementing the discriminator

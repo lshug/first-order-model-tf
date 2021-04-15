@@ -113,3 +113,9 @@ def load_models_tflite(model, **kwargs):
                     adapt_movement_scale=tf.convert_to_tensor(p),
                     )
     return kp_detector, process_kp_driving, generator, [kp_detector_interpreter, process_kp_driving_interpreter, generator_interpreter]
+
+def tflite_ops(model='vox'):
+    ops = {}
+    for module in ['kp_detector', 'generator', 'process_kp_driving']:
+        ops[module] = list(set([x['op_name'] for x in tf.lite.Interpreter(model_path="tflite/{model}/" + module)._get_ops_details()]))
+    return ops
