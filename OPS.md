@@ -1,8 +1,10 @@
 # Ops
 
-### Legend
-
 This file lists the TF Lite ops that are used in the three modules post-conversion, along with the notes about the ops' compatiblity with TF Lite's delegates. When TF Lite interpreter is using a delegate and encounters a non-compatible op during runtime, it is forced to switch to CPU, which is quite expensive in terms of performance and memory, so avoiding such ops is preferrable. For this reason, I'm providing small guides to converting certain incompatible ops into series of compatible ops. Unfortunately there are certain ops that are necessary for the model and that cannot realistically be converted in such manner, these being: tensor tiling, gather_nd, batch matrix multiplication, dtype casting, taking a floor, summing, division, square root, logical operations and comparisons on bool tensors, ternary select, tensor transposition, and argmin.
+
+It should be noted that only non-static uses of non-compatible ops need to be converted. For example, using non-compatible ops to generate tensors in keras layers' build functions should be fine. An example of this is the use of ```make_coordinate_grid```, which uses casts and tiling, in some custom layers' build functions.
+
+### Legend
 
  * -: not supported by delegates
  * ~: not supported by coreml delegate, but supported by others
