@@ -898,11 +898,12 @@ def batch_batch_four_by_four_inv(x):
 
 
 class ProcessKpDriving(tf.Module):
-    def __init__(self, num_kp, estimate_jacobian=True, single_jacobian_map=False):
+    def __init__(self, num_kp, estimate_jacobian=True, single_jacobian_map=False, static_batch_size=None):
         self.num_kp = num_kp
         self.estimate_jacobian = estimate_jacobian
         jacobian_number = 1 if single_jacobian_map else self.num_kp
         self.jacobian_number = jacobian_number
+        self.static_batch_size = static_batch_size
         input_signature=[
                 tf.TensorSpec([None, num_kp, 2], tf.float32),
                 tf.TensorSpec([None, jacobian_number, 2, 2], tf.float32),
@@ -985,11 +986,15 @@ class ProcessKpDriving(tf.Module):
     def convex_hull_area(self, X):
         num_kp = self.num_kp
         O = X * 0
-        L = tf.shape(X)[0]
+        if self.static_batch_size is None:
+            L = tf.shape(X)[0]
+        else:
+            L = self.static_batch_size            
+        rng = tf.range(L)
+        sqrng = tf.range(L*L)
         n = tf.cast(num_kp, tf.int32)
         l = tf.cast(tf.argmin(X[:, :, 0], 1), tf.int32)
         p = l
-        rng = tf.range(L)
         for i in range(num_kp):
             pt = tf.transpose(tf.stack([rng, p]), (1, 0))
             ind = tf.expand_dims(tf.gather_nd(X, pt), 1)
@@ -1006,7 +1011,7 @@ class ProcessKpDriving(tf.Module):
             p = tf.where((((q - l) < 1) & ((q - l) > -1)), p, q)
         j = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 1][:, 1], 1), O[:, :, 1][:, 2:], tf.expand_dims(O[:, :, 1][:, 0], 1)], 1), (1, 0))
         k = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 0][:, 1], 1), O[:, :, 0][:, 2:], tf.expand_dims(O[:, :, 0][:, 0], 1)], 1), (1, 0))
-        left = tf.reshape(tf.range(L * L), (L, L))
+        left = tf.reshape(sqrng, (L, L))
         right = tf.transpose(left)
         eye = tf.where(left==right, tf.ones((L,L)), tf.zeros((L,L)))
         inc = (eye * tf.tensordot(O[:, :, 0], j, 1)) @ tf.ones((L, 1)) - (eye * tf.tensordot(O[:, :, 1], k, 1)) @ tf.ones((L, 1))
@@ -1014,5 +1019,5 @@ class ProcessKpDriving(tf.Module):
         return area
 
 
-def build_process_kp_driving(num_kp=10, estimate_jacobian=True, single_jacobian_map=False, **kwargs):
-    return ProcessKpDriving(num_kp, estimate_jacobian, single_jacobian_map)
+def build_process_kp_driving(num_kp=10, estimate_jacobian=True, single_jacobian_map=False, static_batch_size=None, **kwargs):
+    return ProcessKpDriving(num_kp, estimate_jacobian, single_jacobian_map, static_batch_size)
