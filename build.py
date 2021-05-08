@@ -74,7 +74,7 @@ parser.add_argument('--predictiononly', action="store_true", help="build the gen
 parser.add_argument('--tfjs', action='store_true', help="build tf.js models, requires tensorflowjs_converter")
 parser.add_argument('--jsquantize', choices=['none', 'float16', 'uint16', 'uint8'], default='float16',
                     help="quantization to apply during tf.js conversions")
-parser.add_argument('--staticbatchsize', action='store', type=int, default=None)
+parser.add_argument('--staticbatchsize', action='store', type=int, default=None, help="optional static batch size to use")
 parser = parser.parse_args()
 
 print("Building")
