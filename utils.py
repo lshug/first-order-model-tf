@@ -117,5 +117,5 @@ def load_models_tflite(model, **kwargs):
 def tflite_ops(model='vox'):
     ops = {}
     for module in ['kp_detector', 'generator', 'process_kp_driving']:
-        ops[module] = list(set([x['op_name'] for x in tf.lite.Interpreter(model_path="tflite/{model}/" + module)._get_ops_details()]))
+        ops[module] = list(set([x['op_name'] for x in tf.lite.Interpreter(model_path=f"tflite/{model}/" + module + '.tflite')._get_ops_details()]))
     return ops
