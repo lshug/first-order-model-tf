@@ -827,7 +827,11 @@ def build_generator_base(
             
         if deformation.shape[1] != inp.shape[1] or deformation.shape[2] != inp.shape[2]:
             deformation = BilinearInterpolate((inp.shape[1], inp.shape[2]), static_batch_size=static_batch_size)(deformation)
-        deformed = GridSample(static_batch_size=static_batch_size)([inp, deformation])
+        if static_batch_size is None:
+            to_deform = layers.Lambda(lambda l: tf.tile(l[0], (tf.shape(l[1])[0], 1, 1, 1)), name="source_deformation_tile")([inp, deformation])
+        else:
+            to_deform = layers.Lambda(lambda l: tf.tile(l[0], (static_batch_size, 1, 1, 1)), name="source_deformation_tile")([inp, deformation])
+        deformed = GridSample(static_batch_size=static_batch_size)([to_deform, deformation])
         
     for i in range(num_bottleneck_blocks):
         x = ResBlock2d(x, min(max_features, block_expansion * (2 ** num_down_blocks)), name="bottleneckr" + str(i))
@@ -1031,7 +1035,7 @@ class ProcessKpDriving(tf.Module):
     @tf.autograph.experimental.do_not_convert
     def convex_hull_area(self, X):
         L = 1 # I noticed very late that this method's only ever called on batch-1 kp tensors. Change this to tf.shape(X)[0]/static_batch_size if you need to reuse with >1 batches.
-        rng = tf.ones(1, dtype='int32') # And change this to tf.range(L)
+        rng = tf.zeros(1, dtype='int32') # And change this to tf.range(L)
         sqrng = rng # And this to tf.range(L * L)
         num_kp = self.num_kp
         O = X * 0
