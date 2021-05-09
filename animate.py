@@ -5,14 +5,18 @@ from tqdm import tqdm
 
 def animate(source_image, driving_video, generator, kp_detector, process_kp_driving, 
             use_relative_movement=True, use_relative_jacobian=True, adapt_movement_scale=True,
-            batch_size=4, profile=False, visualizer_params=None):
+            batch_size=4, exact_batch=False, profile=False, visualizer_params=None):
     l = len(driving_video)
     source_image = tf.convert_to_tensor(source_image, "float32")
     
     if profile:
         tf.profiler.experimental.start("./log")
 
-    kp_source = kp_detector(source_image)
+    if exact_batch:
+        kp_source = {k:v[0:1] for k,v in kp_detector(tf.tile(source_image, (batch_size, 1, 1, 1))).items()}
+        driving_video = driving_video[:batch_size * (len(driving_video) // batch_size)]
+    else:
+        kp_source = kp_detector(source_image)
     estimate_jacobian = 'jacobian' in kp_source.keys()
     
     predictions = []
