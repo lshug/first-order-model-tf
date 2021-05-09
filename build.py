@@ -31,7 +31,8 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, tf
         single_jacobian_map = False
     
     if module == 'kp_detector' or module=='all':
-        kp_detector = build_kp_detector(checkpoint_path, **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"])
+        kp_detector = build_kp_detector(checkpoint_path, **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"], 
+                                        static_batch_size=static_batch_size)
         print(f"{output_name} - kp_detector")
         tf.saved_model.save(kp_detector, "saved_models/" + output_name + "/kp_detector", kp_detector.__call__.get_concrete_function())
         kp_detector_converter = tf.lite.TFLiteConverter.from_saved_model("saved_models/" + output_name + "/kp_detector")
@@ -43,7 +44,7 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, tf
             subprocess.run(command.split())
     
     if module == 'generator' or module=='all':
-        generator = build_generator(checkpoint_path, not prediction_only, **config["dataset_params"], **config["model_params"]["generator_params"], **config["model_params"]["common_params"], single_jacobian_map=single_jacobian_map)
+        generator = build_generator(checkpoint_path, not prediction_only, **config["dataset_params"], **config["model_params"]["generator_params"], **config["model_params"]["common_params"], single_jacobian_map=single_jacobian_map, static_batch_size=static_batch_size)
         print(f"{output_name} - generator")
         tf.saved_model.save(generator, "saved_models/" + output_name + "/generator", signatures=generator.__call__.get_concrete_function())
         generator_converter = tf.lite.TFLiteConverter.from_saved_model("saved_models/" + output_name + "/generator")
