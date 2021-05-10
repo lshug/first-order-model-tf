@@ -2,23 +2,22 @@
 # first-order-model-tf
 TensorFlow port of first-order motion model. TF Lite and TF.js compatible, supports the original's checkpoints and implements in-graph kp processing, but inference only (no training). 
  
-Original PyTorch version can be found at [AliaksandrSiarohin/first-order-model](https://github.com/AliaksandrSiarohin/first-order-model). Copy the checkpoint tars into the checkpoint folder. If you intend to run the fashion-trained model, be sure to rename the checkpoint file for that model from fashion.pth.tar to fashion-cpk.pth.tar (the original filename for that checkpoint doesn't fit into the naming scheme for others for some reason, and that messes up the load process). Run build.py to generate saved_models and lite (and tf.js models if tensorflowjs_converter is installed and --tfjs flag is used) models. After that, you can run inference directly, with saved_models, or with tf lite, using run.py.
+Original PyTorch version can be found at [AliaksandrSiarohin/first-order-model](https://github.com/AliaksandrSiarohin/first-order-model). Copy the checkpoint tars into the checkpoint folder. If you intend to run the fashion-trained model, be sure to rename the checkpoint file for that model from fashion.pth.tar to fashion-cpk.pth.tar (the original filename for that checkpoint doesn't fit into the naming scheme for others for some reason, and that messes up the load process). Run build.py to generate saved_models and tflite files (and tf.js models if tensorflowjs_converter is installed and --tfjs flag is used). After that, you can run inference directly, with saved_models, or with tf lite, using run.py.
 
 ![example](example/example.gif)
 
 ## run.py and build.py CLI
 ```
-usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--mode {animate,reconstruction}] [--datamode {file,dataset}] [--model MODEL]
-              [--source_image SOURCE_IMAGE] [--driving_video DRIVING_VIDEO] [--output OUTPUT] [--dontappend] [--relative] [--adapt]
-              [--frames FRAMES] [--batchsize BATCH_SIZE] [--profile] [--visualizer]
+usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--mode {animate,reconstruction}] [--datamode {file,dataset}] [--model MODEL] [--source_image SOURCE_IMAGE]
+              [--driving_video DRIVING_VIDEO] [--output OUTPUT] [--dontappend] [--relative] [--adapt] [--frames FRAMES] [--batchsize BATCH_SIZE] [--exactbatch] [--profile]
+              [--visualizer]
 
 Run inference
 
 optional arguments:
   -h, --help            show this help message and exit
   --target {direct,savedmodel,tflite}
-                        model version to run (between running the model directly, running the model's saved_model, and running its converted
-                        tflite
+                        model version to run (between running the model directly, running the model's saved_model, and running its converted tflite
   --mode {animate,reconstruction}
                         Run mode (animate, reconstruct, or train)
   --datamode {file,dataset}
@@ -35,13 +34,14 @@ optional arguments:
   --frames FRAMES       number of frames to process
   --batchsize BATCH_SIZE
                         batch size
+  --exactbatch          tile source image to batch size and discard driving video frames beyond last index divisible by batch size
   --profile             enable tensorboard profiling
   --visualizer          enable visualizer, only relevant for dataset datamode
 ```
 
 ```
-usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--predictiononly] [--tfjs]
-                [--jsquantize {none,float16,uint16,uint8}]
+usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--predictiononly] [--tfjs] [--jsquantize {none,float16,uint16,uint8}]
+                [--staticbatchsize STATICBATCHSIZE]
 
 Build saved_model, tflite, and tf.js modules from checkpoints and configs.
 
@@ -55,22 +55,23 @@ optional arguments:
   --tfjs                build tf.js models, requires tensorflowjs_converter
   --jsquantize {none,float16,uint16,uint8}
                         quantization to apply during tf.js conversions
+  --staticbatchsize STATICBATCHSIZE
+                        optional static batch size to use
 ```
 
 ## Inference details
 
  * First, the kps and the jacobian for the source image are detected through the kp_detector model.
- * Then, for each batch of driving video frames, kps and jacobians are detected using the kp_detector model.
- * Processing of the resultant driving video frame kps and jacobians is done using process_kp_driving model (with source image and video kps/jacobians, and boolean parameters *use_relative_motion*, *use_relative_jacobian*, and *adapt_movement_scale* as inputs).
- * Finally, for each batch of driving video frame kps, the generator model is used (with source image, source image kps/jacobian, and the video frame batch's kps/jacobians as inputs) to generate the outputs.
+ * Then, for each batch of driving video frames:
+    * kps and jacobians are detected using the kp_detector model.
+    * Processing of the resultant driving video frame kps and jacobians is done using process_kp_driving model (with source image and video kps/jacobians, and boolean parameters *use_relative_motion*, *use_relative_jacobian*, and *adapt_movement_scale* as inputs).
+    * Finally, the generator model is used (with source image, source image kps/jacobian, and the video frame batch's kps/jacobians as inputs) to generate the frame predictions.
  
 For more details, take a look inside animate.py or the generated tensorboard files in ./log (generated when run.py is run with --profile directly or on --target savedmodel).
  
 One thing I didn't implement from the original is the find_best_frame option, which used [face-alignment](https://github.com/1adrianb/face-alignment) to find the frame in the driving video that is closest to the source image in terms of face alignment. I didn't want to include outside dependencies and this was only relevant to vox models.
 
 ## FAQ
-
-(Nobody actually asked me those questions, but that just means that each question has a frequency of zero, so they're all tied for the most-frequently-asked-question prize, so they all belong in this FAQ section)
 
 **How do I add custom-trained models?**
 
@@ -80,7 +81,7 @@ Place checkpoint "{name}-cpk.pth.tar" in ./checkpoint, place "{name}-256.yml" in
 
 Cool. Place checkpoint "{name}-cpk.pth.tar" in ./checkpoint, place "{name}-256.yml" in ./config. 
 
-**Why is TF 2.5.0rc0 required instead of the stable 2.4.1?**
+**Why is TF 2.5.0rc3 required instead of the stable 2.4.1?**
 
 Input and output names of savedmodel-converted tflite models are based on the names of the input and ouput tensors instead of their keys in the wrapped concrete function's SignatureDef. This makes it a requirement to save the tensor-name-to-output-name mappings externally and load them when rebuilding a function out of the tflite interpreter's methods that has the same output format as the savedmodel's callable signature, and that's not pretty. Not to mention the fact that the whole process of finding input/output indices, manually resizing input tensors, allocating tensors, invoking the interpreter, and manually returning the values of the output tensors requires boilerplate of cosmic proporitons (see testlite.py in older commits for a good example). Starting from TF 2.5.0, tflite interpreter can return a signature runner, which has the same input-output scheme as savedmodel's signature, and gets rid of all the boilerplate. Everything other than running run.py with --target tflite (including actually building the tflite models) should work just fine on 2.4.1. In addition, a [tag](https://github.com/lshug/first-order-model-tf/tree/tf2.4.1) is available for the last commit at which everything, including animating on TF Lite models, was compatible with TF 2.4.1.
 
@@ -114,7 +115,9 @@ Hack-around to make calling from outside not too ugly (though I guess I can't re
 
 **Can the code be significantly optimized further?**
 
-Probably not. TensorBoard profiler and TF Lite benchmarking tool both show that almost all of the inference time is spent on conv2d ops for both generator and detector, and the time spent on process_kp_driving is already very short. If you do have any ideas, pull request away! Out of code, all the usual post-training tf lite optimizations can be added to reduce .tflite sizes and to speed up inference. Refer to [TF Lite optimization guide](https://www.tensorflow.org/lite/performance/model_optimization) and to [tensorflow-model-optimization documentation's weight clustering guide](https://www.tensorflow.org/model_optimization/guide/clustering/clustering_example).
+On CPU, probably not. TensorBoard profiler and TF Lite benchmarking tool both show that almost all of the inference time is spent on conv2d ops for both generator and detector, and the time spent on process_kp_driving is already very short. If you do have any ideas, pull request away! Out of code, all the usual post-training tf lite optimizations can be added to reduce .tflite sizes and to speed up inference. Refer to [TF Lite optimization guide](https://www.tensorflow.org/lite/performance/model_optimization) and to [tensorflow-model-optimization documentation's weight clustering guide](https://www.tensorflow.org/model_optimization/guide/clustering/clustering_example).
+
+On GPU, some parts (GridSample and BilinearInterpolate) seem to be driving the utilization down, which makes the model perform worse than original on low batch sizes. Finding the bottlenecks and replacing them with ops that parallelize better could lead to some gains in performance.
 
 **Could I make a single keras model that receives source image and driving video and outputs the predicted video?**
 
@@ -140,17 +143,17 @@ Boy, was making this thing work with the original's checkpoints with tf lite and
  * Translate the internals of PyTorch's bilinear interpolation op into tf code
  * Same with nearest-interpolation
  * Same with F.grid_sample
- * Implement an tf lite-compatible in-graph calculation of the area of a 2D convex hull given the number of points (for processing kps in-graph; original uses scipy.spatial, which itself uses qhull, and I wanted everything to be handled in-graph so that the three tf lite models would be able to handle the full inference pipeline from the source image and the driving video all the way to the inferred video)
+ * Implement a tf lite-compatible in-graph calculation of the area of a 2D convex hull given the number of points (for processing kps in-graph; original uses scipy.spatial, which itself uses qhull, and I wanted everything to be handled in-graph so that the three tf lite models would be able to handle the full inference pipeline from the source image and the driving video all the way to the inferred video)
  * Translate numpy-like indexings into equivalent tf.gather_nd calls
  * Translate all the weird little constructs of the original into keras layers (all the stuff used in the dense motion network module in particular made me cry a few times)
  * Get rid of all the autoamtic shape broadcasting that'd make life a little easier because apparently they make tf lite crash
  * Do some seriously complicated math to derive equivalent sequences of tensor reshapes and transpositions
- * Take all those tf ops that are really pretty and elegant and replace them with esoteric magic so that tf doesn't complain
+ * Take all those tf ops that are really pretty and elegant and replace them with esoteric magic so that tf lite doesn't complain
  * Export intermediate outputs during inference at two dozen places in both tf and torch code to manually compare differences until they evaporated
  * Reverse-engineer pytorch's checkpoint loader (this wasn't strictly necessary, and earlier I just used torch.load to load the checkpoints, but having torch as a requirement in a tf port of a torch project seemed in bad taste)
  * Some other stuff I barely remember
 
-In the end, it actually turned out a little faster than the original. Kudos to me.
+In the end, it actually turned out a little faster than the original, at least on a CPU. Kudos to me.
 
 ### Attribution
 [first-order-model](https://github.com/AliaksandrSiarohin/first-order-model) by [AliaksandrSiarohin](https://github.com/AliaksandrSiarohin), used under [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) / Ported to TensorFlow
