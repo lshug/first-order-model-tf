@@ -5,6 +5,10 @@ from tqdm import tqdm
 from contextlib import nullcontext
 import numpy as np
 
+@tf.function
+def first_elem_reshape(x):
+    return x[0][None]
+
 def animate(source_image, driving_video, generator, kp_detector, process_kp_driving, 
             use_relative_movement=True, use_relative_jacobian=True, adapt_movement_scale=True,
             batch_size=4, exact_batch=False, profile=False, visualizer_params=None):
@@ -15,9 +19,9 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         tf.profiler.experimental.start("./log")
 
     if exact_batch:
-        kp_source = {k:v[0][None] for k,v in kp_detector(np.tile(source_image, (batch_size, 1, 1, 1))).items()}
+        kp_source = {k:first_elem_reshape(v) for k,v in kp_detector(np.tile(source_image, (batch_size, 1, 1, 1))).items()}
         driving_video = driving_video[:batch_size * (len(driving_video) // batch_size)]
-        kp_driving_initial = {k:v[0][None] for k,v in kp_detector(np.tile(driving_video[0][None], (batch_size, 1, 1, 1))).items()}
+        kp_driving_initial = {k:first_elem_reshape(v) for k,v in kp_detector(np.tile(driving_video[0][None], (batch_size, 1, 1, 1))).items()}
     else:
         kp_source = kp_detector(source_image)
         kp_driving_initial = kp_detector(driving_video[0][None])
