@@ -297,8 +297,8 @@ class Interpolate(layers.Layer):
         flat_grid = tf.transpose(flat_grid, (1, 0))
         grid = tf.reshape(flat_grid, grid_shape)
         grid = tf.cast(grid, "int32")
-        self.y_max = tf.cast(y_max, "int32")
-        self.x_max = tf.cast(x_max, "int32")
+        self.y_max = int((input_shape[1] * self.scale_factor[0]) // 1)
+        self.x_max = int((input_shape[2] * self.scale_factor[1]) // 1)
         self.grid = grid
         super(Interpolate, self).build(input_shape)
 
@@ -426,8 +426,8 @@ class GridSample(layers.Layer):
         iH, iW = self.iH, self.iW
 
         # extract x,y from grid
-        x = tf.reshape(grid[:, :, :, 0], (-1, H, W, 1))
-        y = tf.reshape(grid[:, :, :, 1], (-1, H, W, 1))
+        x = tf.reshape(grid[:, :, :, 0], (-1, self.i_H, self.i_W, 1))
+        y = tf.reshape(grid[:, :, :, 1], (-1, self.i_H, self.i_W, 1))
 
         # ComputeLocationBase
         x = (x + 1) * (W / 2) - 0.5
@@ -505,6 +505,7 @@ class GridSample(layers.Layer):
             self.brange = tf.range(self.static_batch_size)
         img_shape = input_shape[0]
         grid_shape = input_shape[1]
+        self.i_H, self.i_W = grid_shape[1], grid_shape[2]
         self.H, self.W = tf.cast(grid_shape[1], "float32"), tf.cast(grid_shape[2], "float32")
         self.iH, self.iW = tf.cast(img_shape[1], "int32"), tf.cast(img_shape[2], "int32")
         super(GridSample, self).build(input_shape)
