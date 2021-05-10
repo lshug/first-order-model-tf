@@ -5,7 +5,7 @@ from tensorflow.keras import layers
 from load_torch_checkpoint import load_torch_checkpoint
 
 class AntiAliasInterpolation2d(layers.Layer):
-    def __init__(self, channels, scale, **kwargs):
+    def __init__(self, channels, scale, static_batch_size=None, **kwargs):
         sigma = (1 / scale - 1) / 2
         kernel_size = 2 * round(sigma * 4) + 1
         ka = kernel_size // 2
@@ -17,6 +17,7 @@ class AntiAliasInterpolation2d(layers.Layer):
         self.kb = kb
         self.groups = channels
         self.scale = scale
+        self.static_batch_size = static_batch_size
 
         super(AntiAliasInterpolation2d, self).__init__(**kwargs)
 
@@ -37,18 +38,16 @@ class AntiAliasInterpolation2d(layers.Layer):
         kernel = tf.transpose(kernel, (2, 3, 1, 0))
         self.kernel = self.add_weight("kernel", kernel.shape, trainable=False)
         self.set_weights([kernel])
-        self.interpolate = Interpolate((self.scale, self.scale))
+        self.interpolate = Interpolate((self.scale, self.scale), static_batch_size=self.static_batch_size)
         ks = []
         for i in range(self.groups):
             ks.append(self.kernel_slice(self.kernel, i))
         self.ks = ks
         super(AntiAliasInterpolation2d, self).build(input_shape)
 
-    @tf.autograph.experimental.do_not_convert
     def kernel_slice(self, x, i):
         return tf.expand_dims(x[:, :, :, i], 3)
 
-    @tf.autograph.experimental.do_not_convert
     def channel_slice(self, x, i, h, w):
         return tf.reshape(x[:, :, :, i], (-1, h, w, 1))
 
@@ -68,7 +67,7 @@ class AntiAliasInterpolation2d(layers.Layer):
 
     def get_config(self):
         config = super(AntiAliasInterpolation2d, self).get_config()
-        config.update({"kernel_size": self.kernel_size, "groups": self.groups, "ka": self.ka, "kb": self.kb, "scale": self.scale})
+        config.update({"kernel_size": self.kernel_size, "groups": self.groups, "ka": self.ka, "kb": self.kb, "scale": self.scale, "static_batch_size":self.static_batch_size})
         return config
 
 
@@ -85,6 +84,38 @@ def make_coordinate_grid(spatial_size, dtype):
     meshed = tf.concat([tf.expand_dims(xx, 2), tf.expand_dims(yy, 2)], 2)
     return meshed
 
+def batch_batch_four_by_four_inv(x):
+    num_kp = x.shape[1]
+    a = x[:, :, 0, 0]
+    b = x[:, :, 0, 1]
+    c = x[:, :, 1, 0]
+    d = x[:, :, 1, 1]
+    dets = a * d - b * c
+    dets = tf.reshape(dets, (-1, num_kp, 1, 1))
+    row1 = tf.stack([d, (-1 * c)], 2)
+    row2 = tf.stack([(-1 * b), a], 2)
+    m = tf.stack([row1, row2], 3)
+    return m / dets
+
+def jacobian_batch_matmul_rightkernel(left, right, jacobian_number):
+    # left: b jn 2 2, right: jn 2 2
+    res = []
+    for i in range(jacobian_number):
+        res.append(tf.tensordot(left[:, i:i+1, :, :], right[i], 1)) # b 1 2 2
+    return tf.concat(res, 1)
+
+def jacobian_batch_matmul_leftkernel(left, right, jacobian_number):
+    # left: jn 2 2, right: b jn 2 2
+    right, left = tf.transpose(left, (0,2,1)), tf.transpose(right, (0,1,3,2))
+    return tf.transpose(jacobian_batch_matmul_rightkernel(left, right, jacobian_number), (0,1,3,2))
+
+def jacobian_grid_matmul(jacobian, grid, static_batch_size, num_kp, h, w):
+    out = []
+    bs = static_batch_size * num_kp
+    for i in range(bs):
+        left, right = jacobian[i], grid[i]
+        out.append(tf.reshape(tf.tensordot(right, tf.transpose(left), 1), (1, h*w, 2)))
+    return tf.reshape(tf.concat(out, 0), (static_batch_size, num_kp, h, w, 2))
 
 class GaussianToKpTail(layers.Layer):
     def __init__(self, temperature=0.1, spatial_size=(58, 58), num_kp=10, **kwargs):
@@ -94,7 +125,6 @@ class GaussianToKpTail(layers.Layer):
         super(GaussianToKpTail, self).__init__(**kwargs)
 
     def call(self, x):
-        x = tf.cast(x, "float32")
         out = tf.reshape(x, (-1, self.spatial_size[0] * self.spatial_size[1], self.num_kp))  # B (H*W) 3
         out = keras.activations.softmax(out / self.temperature, axis=1)
         heatmap = tf.reshape(out, (-1, self.spatial_size[0], self.spatial_size[1], self.num_kp))
@@ -124,15 +154,19 @@ class GaussianToKpTail(layers.Layer):
 
 
 class SparseMotion(layers.Layer):
-    def __init__(self, spatial_size, num_kp, estimate_jacobian, **kwargs):
+    def __init__(self, spatial_size, num_kp, estimate_jacobian, static_batch_size=None, **kwargs):
         self.spatial_size = spatial_size
         self.num_kp = num_kp
         self.estimate_jacobian = estimate_jacobian
+        self.static_batch_size = static_batch_size
         super(SparseMotion, self).__init__(**kwargs)
 
     def call(self, x):
         kp_driving, kp_source = x[0], x[2]
-        bs = tf.shape(kp_driving)[0]
+        if self.static_batch_size is None:
+            bs = tf.shape(kp_driving)[0]
+        else:
+            bs = self.static_batch_size
         h, w = self.spatial_size
         identity_grid = self.grid  # hw2
 
@@ -140,22 +174,27 @@ class SparseMotion(layers.Layer):
         identity_grid = identity_grid + tf.zeros_like(tf.reduce_sum(coordinate_grid, 1))  # bhw2
         identity_grid = tf.reshape(identity_grid, (-1, 1, h, w, 2))
 
-        # adjust coordinate grid with jacobians, then where it with the thingie
+        # adjust coordinate grid with jacobians
         if self.estimate_jacobian:
             kp_driving_jacobian, kp_source_jacobian = x[1], x[3]
-            left = tf.reshape(tf.tile(kp_source_jacobian, (bs, 1, 1, 1)), (-1, 2, 2))
-            right = tf.reshape(batch_batch_four_by_four_inv(kp_driving_jacobian), (-1, 2, 2))
-            jacobian = left @ right
-            jacobian = tf.reshape(jacobian, (-1, kp_driving_jacobian.shape[1], 1, 1, 2, 2))  # b kp 1 1 2 2
-            jacobian = tf.tile(jacobian, (1, self.jacobian_tile, self.spatial_size[0], self.spatial_size[1], 1, 1))
-            jacobian = tf.reshape(jacobian, (-1, 2, 2))
-            reshaped_grid = tf.reshape(coordinate_grid, (-1, 2, 1))
-            new_coordinate_grid = jacobian @ reshaped_grid
-            new_coordinate_grid = tf.reshape(new_coordinate_grid, (-1, self.num_kp, self.spatial_size[0], self.spatial_size[1], 2))            
-            coordinate_grid = new_coordinate_grid
+            jacobian_number = kp_driving_jacobian.shape[1]
+            left = tf.reshape(kp_source_jacobian, (-1, 2, 2)) # 4*bs 2 2. untiled: 4 2 2
+            right = batch_batch_four_by_four_inv(kp_driving_jacobian)
+            if self.static_batch_size is None:
+                jacobian = left @ right # b 10 2 2
+                jacobian = tf.tile(jacobian, (1, self.jacobian_tile, 1, 1))
+                reshaped_jacobian = tf.reshape(jacobian, (-1, 2, 2))
+                reshaped_grid = tf.transpose(tf.reshape(coordinate_grid, (-1, h * w, 2, 1)), (1,0,2,3))
+                coordinate_grid = tf.reshape(tf.transpose((reshaped_jacobian @ reshaped_grid),(1,0,2,3)), (-1, self.num_kp, h, w, 2))
+            else:
+                jacobian = jacobian_batch_matmul_leftkernel(left, right, jacobian_number)
+                jacobian = tf.tile(jacobian, (1, self.jacobian_tile, 1, 1))
+                reshaped_jacobian = tf.reshape(jacobian, (-1, 2, 2))
+                reshaped_grid = tf.reshape(coordinate_grid, (-1, h * w, 2))                
+                coordinate_grid = jacobian_grid_matmul(reshaped_jacobian, reshaped_grid, self.static_batch_size, self.num_kp, h, w)
 
         mult = tf.tile(tf.reshape(kp_source, (-1, self.num_kp, 1, 1, 2)), (bs, 1, h, w, 1))
-        mult = tf.zeros_like(mult) - mult
+        mult = 0 - mult
         driving_to_source = coordinate_grid - mult
 
         sparse_motions = tf.concat([identity_grid, driving_to_source], 1)
@@ -172,19 +211,23 @@ class SparseMotion(layers.Layer):
 
     def get_config(self):
         config = super(SparseMotion, self).get_config()
-        config.update({"spatial_size": self.spatial_size, "num_kp": self.num_kp, "estimate_jacobian": self.estimate_jacobian})
+        config.update({"spatial_size":self.spatial_size, "num_kp":self.num_kp, "estimate_jacobian":self.estimate_jacobian, "static_batch_size":self.static_batch_size})
         return config
 
 
 class Deform(layers.Layer):
-    def __init__(self, spatial_size, channels, num_kp, **kwargs):
+    def __init__(self, spatial_size, channels, num_kp, static_batch_size=None, **kwargs):
         self.spatial_size = spatial_size
         self.channels = channels
         self.num_kp = num_kp
+        self.static_batch_size = static_batch_size
         super(Deform, self).__init__(**kwargs)
 
     def call(self, x):
-        bs = tf.shape(x[1])[0]
+        if self.static_batch_size is None:
+            bs = tf.shape(x[1])[0]
+        else:
+            bs = self.static_batch_size
         h, w = self.spatial_size
         source = tf.reshape(x[0], (-1, 1, 1, h, w, self.channels))
         source_repeat = tf.tile(source, (bs, self.num_kp + 1, 1, 1, 1, 1))
@@ -195,7 +238,10 @@ class Deform(layers.Layer):
         return sparse_deformed
 
     def build(self, input_shape):
-        self.grid_sample = GridSample()
+        if self.static_batch_size is None:
+            self.grid_sample = GridSample()
+        else:
+            self.grid_sample = GridSample(static_batch_size=self.static_batch_size * (self.num_kp + 1))
         super(Deform, self).build(input_shape)
 
     def compute_output_shape(self, input_shape):
@@ -242,11 +288,14 @@ class KpToGaussian(layers.Layer):
 
 
 class Interpolate(layers.Layer):
-    def __init__(self, scale_factor, **kwargs):
+    def __init__(self, scale_factor, static_batch_size=None, **kwargs):
         self.scale_factor = tuple(float(x) for x in scale_factor)
+        self.static_batch_size = static_batch_size
         super(Interpolate, self).__init__(**kwargs)
 
     def build(self, input_shape):
+        if self.static_batch_size is not None:
+            self.brange = tf.range(self.static_batch_size)
         H, W = input_shape[1], input_shape[2]
         H_f, W_f = tf.cast(H, "float32"), tf.cast(W, "float32")
         y_max = tf.floor(input_shape[1] * self.scale_factor[0])
@@ -267,10 +316,13 @@ class Interpolate(layers.Layer):
         scale_factor = self.scale_factor
         y_max = tf.floor(img.shape[1] * scale_factor[0])
         x_max = tf.floor(img.shape[2] * scale_factor[1])
-        N = tf.shape(img)[0]
         grid = self.grid
-
-        batch_range = tf.range(N)
+        if self.static_batch_size is None:
+            N = tf.shape(img)[0]
+            batch_range = tf.range(N)
+        else:
+            N = self.static_batch_size
+            batch_range = self.brange
         g = tf.cast(tf.expand_dims(tf.tile(tf.reshape(batch_range, (-1, 1, 1)), (1, y_max, x_max)), 3), "int32")
         grid = tf.tile(tf.reshape(grid, (1, y_max, x_max, 2)), (N, 1, 1, 1))
         grid = tf.concat([g, grid], 3)
@@ -284,16 +336,19 @@ class Interpolate(layers.Layer):
 
     def get_config(self):
         config = super(Interpolate, self).get_config()
-        config.update({"scale_factor": self.scale_factor})
+        config.update({"scale_factor":self.scale_factor, "static_batch_size":self.static_batch_size})
         return config
 
 
 class BilinearInterpolate(layers.Layer):
-    def __init__(self, size, **kwargs):
+    def __init__(self, size, static_batch_size=None, **kwargs):
         self.size = size
+        self.static_batch_size = static_batch_size
         super(BilinearInterpolate, self).__init__(**kwargs)
 
     def build(self, input_shape):
+        if self.static_batch_size is not None:
+            self.brange = tf.range(self.static_batch_size)
         size = self.size
         x_scale = tf.cast(input_shape[2] / size[1], "float32")
         y_scale = tf.cast(input_shape[1] / size[0], "float32")
@@ -317,7 +372,13 @@ class BilinearInterpolate(layers.Layer):
 
     def call(self, img):
         size = self.size
-        N, H, W = tf.shape(img)[0], img.shape[1], img.shape[2]
+        if self.static_batch_size is None:
+            N = tf.shape(img)[0]
+            batch_range = tf.range(N)
+        else:
+            N = self.static_batch_size
+            batch_range = self.brange
+        H, W = img.shape[1], img.shape[2]
         zeros = self.zeros
         ones = self.ones
         grid = self.grid
@@ -325,7 +386,6 @@ class BilinearInterpolate(layers.Layer):
 
         y = tf.cast(tf.transpose(tf.stack([tf.cast(grid_int[..., 0] < W - 1, "int32"), zeros]), (1, 2, 0)), "int32")
         x = tf.cast(tf.transpose(tf.stack([zeros, tf.cast(grid_int[..., 1] < H - 1, "int32")]), (1, 2, 0)), "int32")
-        batch_range = tf.range(N)
         g = tf.cast(tf.expand_dims(tf.tile(tf.reshape(batch_range, (-1, 1, 1)), (1, size[0], size[1])), 3), "int32")
 
         grid00 = grid_int
@@ -357,18 +417,18 @@ class BilinearInterpolate(layers.Layer):
 
     def get_config(self):
         config = super(BilinearInterpolate, self).get_config()
-        config.update({"size": self.size})
+        config.update({"size":self.size, "static_batch_size":self.static_batch_size})
         return config
 
 
 class GridSample(layers.Layer):
-    def __init__(self, **kwargs):
+    def __init__(self, static_batch_size=None, **kwargs):
+        self.static_batch_size = static_batch_size
         super(GridSample, self).__init__(**kwargs)
 
     def call(self, data):
         return self._grid_sample(data)
 
-    @tf.autograph.experimental.do_not_convert
     def _grid_sample(self, data):
         img = data[0]
         grid = data[1]
@@ -416,8 +476,11 @@ class GridSample(layers.Layer):
         se_mask = e_mask & s_mask
 
         # loop
-        N = tf.reduce_sum(tf.cast(x * 0 + 1, "int32"), 0)[0][0][0]
-        b = tf.range(N)
+        if self.static_batch_size is None:
+            N = tf.shape(x)[0]
+            b = tf.range(N)
+        else:
+            b = self.brange
         b = tf.reshape(b, (-1, 1, 1, 1))
         b = tf.tile(b, (1, H, W, 1))
         b = tf.cast(b, "int32")
@@ -449,7 +512,14 @@ class GridSample(layers.Layer):
         return input_shape[0][0], input_shape[1][1], input_shape[1][2], input_shape[0][3]
 
     def build(self, input_shape):
+        if self.static_batch_size is not None:
+            self.brange = tf.range(self.static_batch_size)
         super(GridSample, self).build(input_shape)
+    
+    def get_config(self):
+        config = super(GridSample, self).get_config()
+        config.update({"static_batch_size": self.static_batch_size})
+        return config
 
 
 class FormHeatmap(layers.Layer):
@@ -486,8 +556,8 @@ def DownBlock2d(x, out_features, kernel_size=(3, 3), name=""):
     return out
 
 
-def UpBlock2d(x, out_features, kernel_size=(3, 3), name=""):
-    out = Interpolate((2, 2))(x)
+def UpBlock2d(x, out_features, kernel_size=(3, 3), name="", static_batch_size=None):
+    out = Interpolate((2, 2), static_batch_size=static_batch_size)(x)
     out = layers.Conv2D(out_features, kernel_size, strides=(1, 1), padding="same", name=name + "conv")(out)
     out = layers.BatchNormalization(trainable=False, momentum=0.1, epsilon=1e-05, name=name + "norm")(out)
     out = layers.Activation("relu")(out)
@@ -512,19 +582,16 @@ def ResBlock2d(x, out_features, kernel_size=(3, 3), name=""):
     return out
 
 
-def create_heatmap_representation(kp_driving, kp_source, h, w, num_kp):
+def create_heatmap_representation(kp_driving, kp_source, h, w, num_kp, static_batch_size=None):
     gaussian_driving = KpToGaussian((h, w), num_kp)(kp_driving)
     gaussian_source = KpToGaussian((h, w), num_kp)(kp_source)
-    gaussian_source = layers.Lambda(lambda l: tf.tile(l[0], (tf.shape(l[1])[0], 1, 1, 1)))([gaussian_source, gaussian_driving])
+    if static_batch_size is None:
+        gaussian_source = layers.Lambda(lambda l: tf.tile(l[0], (tf.shape(l[1])[0], 1, 1, 1)))([gaussian_source, gaussian_driving])
+    else:
+        gaussian_source = layers.Lambda(lambda l: tf.tile(l[0], (static_batch_size, 1, 1, 1)))([gaussian_source, gaussian_driving])
     heatmap = layers.Subtract()([gaussian_driving, gaussian_source])  # B(KP)HW
     heatmap = FormHeatmap((h, w), num_kp)(heatmap)
     return heatmap
-
-
-def big_transpose(x, h, w, c, kp):
-    x = tf.transpose(x, (0, 2, 3, 1, 4))
-    return x
-
 
 def dense_motion(
     source,
@@ -541,6 +608,7 @@ def dense_motion(
     max_features=1024,
     num_blocks=5,
     scale_factor=0.25,
+    static_batch_size=None,
 ):
     if scale_factor != 1:
         source = AntiAliasInterpolation2d(num_channels, scale_factor)(source)
@@ -548,14 +616,14 @@ def dense_motion(
     h, w = shape
     h = int(h * scale_factor)
     w = int(w * scale_factor)
-    heatmap_representation = create_heatmap_representation(kp_driving, kp_source, h, w, num_kp)  # B 11 H W 1
+    heatmap_representation = create_heatmap_representation(kp_driving, kp_source, h, w, num_kp, static_batch_size=static_batch_size)  # B 11 H W 1
     if not estimate_jacobian:
         kp_driving_jacobian, kp_source_jacobian = None, None
-    sparse_motion = SparseMotion((h, w), num_kp, estimate_jacobian)([kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian])  # B 11  H W 2
-    deformed_source = Deform((h, w), num_channels, num_kp)([source, sparse_motion])  # B 11 H W C
-
+    sparse_motion = SparseMotion((h, w), num_kp, estimate_jacobian, static_batch_size=static_batch_size)([kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian])  # B 11  H W 2
+    deformed_source = Deform((h, w), num_channels, num_kp, static_batch_size=static_batch_size)([source, sparse_motion])  # B 11 H W C
+    
     inp = layers.Concatenate(4)([heatmap_representation, deformed_source])  # B 11 H W C+1
-    inp = layers.Lambda(lambda l: big_transpose(l, h, w, num_channels, num_kp))(inp)
+    inp = layers.Lambda(lambda l: tf.transpose(l, (0, 2, 3, 1, 4)))(inp)
     inp = layers.Reshape((h, w, (num_kp + 1) * (num_channels + 1)))(inp)  # won't reshape, but will assert the shape
     x = inp
     l = []
@@ -565,7 +633,7 @@ def dense_motion(
 
     x = l.pop()
     for i in range(num_blocks)[::-1]:
-        x = UpBlock2d(x, min(max_features, block_expansion * (2 ** (i))), name="dense_motion_networkhourglassdecoderup_blocks" + str(4 - i))
+        x = UpBlock2d(x, min(max_features, block_expansion * (2 ** (i))), name="dense_motion_networkhourglassdecoderup_blocks" + str(4 - i), static_batch_size=static_batch_size)
         skip = l.pop()
         x = layers.Concatenate(3)([x, skip])
 
@@ -604,7 +672,8 @@ def build_kp_detector_base(
     num_blocks=5,
     estimate_jacobian=True,
     single_jacobian_map=False,
-    pad=0
+    pad=0,
+    static_batch_size=None,
 ):
     inp = layers.Input(shape=(frame_shape[0], frame_shape[1], num_channels), dtype="float32", name="img")
     
@@ -612,7 +681,7 @@ def build_kp_detector_base(
     if scale_factor == 1:
         x = inp
     else:
-        x = AntiAliasInterpolation2d(num_channels, scale_factor)(inp)
+        x = AntiAliasInterpolation2d(num_channels, scale_factor, static_batch_size=static_batch_size)(inp)
 
     # encode
     l = []
@@ -623,7 +692,7 @@ def build_kp_detector_base(
     # decode
     x = l.pop()
     for i in range(num_blocks)[::-1]:
-        x = UpBlock2d(x, min(max_features, block_expansion * (2 ** i)), name="upblock" + str(i))
+        x = UpBlock2d(x, min(max_features, block_expansion * (2 ** i)), name="upblock" + str(i), static_batch_size=static_batch_size)
         skip = l.pop()
         x = layers.Concatenate(3)([x, skip])
     feature_map = x
@@ -694,6 +763,7 @@ class KpDetector(tf.Module):
         estimate_jacobian=True,
         single_jacobian_map=False,
         pad=0,
+        static_batch_size=None,
         **kwargs,
     ):
         self.single_jacobian_map = single_jacobian_map
@@ -710,16 +780,17 @@ class KpDetector(tf.Module):
             estimate_jacobian=estimate_jacobian,
             single_jacobian_map=single_jacobian_map,
             pad=pad,
+            static_batch_size=static_batch_size,
         )
-        self.__call__ = tf.function(input_signature=[tf.TensorSpec([None, frame_shape[0], frame_shape[1], num_channels], tf.float32)])(self.__call__)
+        self.__call__ = tf.function(input_signature=[tf.TensorSpec([static_batch_size, frame_shape[0], frame_shape[1], num_channels], tf.float32)])(self.__call__)
         super(KpDetector, self).__init__()
 
     def __call__(self, img):
         return self.kp_detector(img, training=False)
 
 
-def build_kp_detector(checkpoint, **kwargs):
-    return KpDetector(checkpoint=checkpoint, **kwargs)
+def build_kp_detector(checkpoint, static_batch_size=None, **kwargs):
+    return KpDetector(checkpoint=checkpoint, static_batch_size=static_batch_size, **kwargs)
 
 
 def build_generator_base(
@@ -736,6 +807,7 @@ def build_generator_base(
     num_bottleneck_blocks=6,
     estimate_occlusion_map=True,
     dense_motion_params={"block_expansion": 64, "max_features": 1024, "num_blocks": 5, "scale_factor": 0.25},
+    static_batch_size=None,
 ):
     jacobian_number = 1 if single_jacobian_map else num_kp
 
@@ -757,22 +829,31 @@ def build_generator_base(
             kp_source_jacobian, (frame_shape[0], frame_shape[1]), 
             num_channels=num_channels, num_kp=num_kp,
             estimate_occlusion_map=estimate_occlusion_map,
-            estimate_jacobian=estimate_jacobian, **dense_motion_params
+            estimate_jacobian=estimate_jacobian, 
+            static_batch_size=static_batch_size,
+            **dense_motion_params
         )
 
         if deformation.shape[1] != x.shape[1] or deformation.shape[2] != x.shape[2]:
-            deformation = BilinearInterpolate((x.shape[1], x.shape[2]))(deformation)
-        x = layers.Lambda(lambda l: tf.tile(l[0], (tf.shape(l[1])[0], 1, 1, 1)), name="deformation_tile")([x, deformation])
-        x = GridSample()([x, deformation])
+            deformation = BilinearInterpolate((x.shape[1], x.shape[2]), static_batch_size=static_batch_size)(deformation)
+        if static_batch_size is None:
+            x = layers.Lambda(lambda l: tf.tile(l[0], (tf.shape(l[1])[0], 1, 1, 1)), name="deformation_tile")([x, deformation])
+        else:
+            x = layers.Lambda(lambda l: tf.tile(l[0], (static_batch_size, 1, 1, 1)), name="deformation_tile")([x, deformation])
+        x = GridSample(static_batch_size=static_batch_size)([x, deformation])
         
         if estimate_occlusion_map:
             if occlusion_map.shape[1] != x.shape[1] or occlusion_map.shape[2] != x.shape[2]:
-                occlusion_map = BilinearInterpolate((x.shape[1], x.shape[2]))(occlusion_map)
+                occlusion_map = BilinearInterpolate((x.shape[1], x.shape[2]), static_batch_size=static_batch_size)(occlusion_map)
             x = layers.Multiply(name="mult")([x, occlusion_map])
             
         if deformation.shape[1] != inp.shape[1] or deformation.shape[2] != inp.shape[2]:
-            deformation = BilinearInterpolate((inp.shape[1], inp.shape[2]))(deformation)
-        deformed = GridSample()([inp, deformation])
+            deformation = BilinearInterpolate((inp.shape[1], inp.shape[2]), static_batch_size=static_batch_size)(deformation)
+        if static_batch_size is None:
+            to_deform = layers.Lambda(lambda l: tf.tile(l[0], (tf.shape(l[1])[0], 1, 1, 1)), name="source_deformation_tile")([inp, deformation])
+        else:
+            to_deform = layers.Lambda(lambda l: tf.tile(l[0], (static_batch_size, 1, 1, 1)), name="source_deformation_tile")([inp, deformation])
+        deformed = GridSample(static_batch_size=static_batch_size)([to_deform, deformation])
         
     for i in range(num_bottleneck_blocks):
         x = ResBlock2d(x, min(max_features, block_expansion * (2 ** num_down_blocks)), name="bottleneckr" + str(i))
@@ -837,6 +918,7 @@ class Generator(tf.Module):
         num_bottleneck_blocks=6,
         estimate_occlusion_map=True,
         dense_motion_params={"block_expansion": 64, "max_features": 1024, "num_blocks": 5, "scale_factor": 0.25},
+        static_batch_size=None,
         **kwargs,
     ):
         jacobian_number = 1 if single_jacobian_map else num_kp
@@ -854,11 +936,12 @@ class Generator(tf.Module):
             num_bottleneck_blocks=num_bottleneck_blocks,
             estimate_occlusion_map=estimate_occlusion_map,
             dense_motion_params=dense_motion_params,
+            static_batch_size=static_batch_size,
         )
         input_signature=[
                 tf.TensorSpec([1, frame_shape[0], frame_shape[1], num_channels], tf.float32),
-                tf.TensorSpec([None, num_kp, 2], tf.float32),
-                tf.TensorSpec([None, jacobian_number, 2, 2], tf.float32),
+                tf.TensorSpec([static_batch_size, num_kp, 2], tf.float32),
+                tf.TensorSpec([static_batch_size, jacobian_number, 2, 2], tf.float32),
                 tf.TensorSpec([1, num_kp, 2], tf.float32),
                 tf.TensorSpec([1, jacobian_number, 2, 2], tf.float32),
             ]
@@ -878,34 +961,23 @@ class Generator(tf.Module):
             
 
 
-def build_generator(checkpoint, full_output=True, **kwargs):
-    return Generator(checkpoint=checkpoint, full_output=full_output, **kwargs)
-
-
-@tf.autograph.experimental.do_not_convert
-def batch_batch_four_by_four_inv(x):
-    num_kp = x.shape[1]
-    a = x[:, :, 0, 0]
-    b = x[:, :, 0, 1]
-    c = x[:, :, 1, 0]
-    d = x[:, :, 1, 1]
-    dets = a * d - b * c
-    dets = tf.reshape(dets, (-1, num_kp, 1, 1))
-    row1 = tf.stack([d, (-1 * c)], 2)
-    row2 = tf.stack([(-1 * b), a], 2)
-    m = tf.stack([row1, row2], 3)
-    return m / dets
+def build_generator(checkpoint, full_output=True, static_batch_size=None, **kwargs):
+    return Generator(checkpoint=checkpoint, full_output=full_output, static_batch_size=static_batch_size, **kwargs)
 
 
 class ProcessKpDriving(tf.Module):
-    def __init__(self, num_kp, estimate_jacobian=True, single_jacobian_map=False):
+    def __init__(self, num_kp, estimate_jacobian=True, single_jacobian_map=False, static_batch_size=None):
         self.num_kp = num_kp
         self.estimate_jacobian = estimate_jacobian
         jacobian_number = 1 if single_jacobian_map else self.num_kp
         self.jacobian_number = jacobian_number
+        self.static_batch_size = static_batch_size
+        if static_batch_size is not None:
+            self.brange = tf.range(static_batch_size)
+            self.bsqrange = tf.range(static_batch_size * static_batch_size)
         input_signature=[
-                tf.TensorSpec([None, num_kp, 2], tf.float32),
-                tf.TensorSpec([None, jacobian_number, 2, 2], tf.float32),
+                tf.TensorSpec([static_batch_size, num_kp, 2], tf.float32),
+                tf.TensorSpec([static_batch_size, jacobian_number, 2, 2], tf.float32),
                 tf.TensorSpec([num_kp, 2], tf.float32),
                 tf.TensorSpec([jacobian_number, 2, 2], tf.float32),
                 tf.TensorSpec([1, num_kp, 2], tf.float32),
@@ -938,11 +1010,9 @@ class ProcessKpDriving(tf.Module):
         kp_new = self.calculate_new_driving(kp_driving, kp_driving_initial, kp_source, use_relative_movement, adapt_movement_scale)
         return {'value':kp_new, 'jacobian':kp_new_jacobian}
        
-    @tf.autograph.experimental.do_not_convert
     def calculate_new_driving(self, kp_driving, kp_driving_initial, kp_source, use_relative_movement, adapt_movement_scale):
         kp_driving_initial = kp_driving_initial[None]
-
-        source_area = self.convex_hull_area(kp_source)
+        source_area = self.convex_hull_area(kp_source)        
         driving_area = self.convex_hull_area(kp_driving_initial)
         scale = tf.sqrt(source_area) / tf.sqrt(driving_area)
         ones = scale * 0.0 + 1.0
@@ -957,40 +1027,33 @@ class ProcessKpDriving(tf.Module):
         kp_new = tf.reshape(kp_new, (-1, self.num_kp, 2))
         return kp_new
     
-    @tf.autograph.experimental.do_not_convert
     def calculate_new_jacobian(self, kp_driving_jacobian, kp_driving_initial_jacobian, kp_source_jacobian,
                                use_relative_movement, use_relative_jacobian):
         kp_driving_initial_jacobian = kp_driving_initial_jacobian[None]
         inv_kp_driving_initial_jacobian = batch_batch_four_by_four_inv(kp_driving_initial_jacobian)
-        inv_kp_driving_initial_jacobian = tf.tile(inv_kp_driving_initial_jacobian, (tf.shape(kp_driving_jacobian)[0], 1, 1, 1))
-
-        res_kp_driving_jacobian = tf.reshape(kp_driving_jacobian, (-1, 2, 2))
         inv_kp_driving_initial_jacobian = tf.reshape(inv_kp_driving_initial_jacobian, (-1, 2, 2))
-        jacobian_diff = res_kp_driving_jacobian @ inv_kp_driving_initial_jacobian  # b kp 2 2
-        jacobian_diff = tf.reshape(jacobian_diff, (-1, 2, 2))
-
-        kp_source_jacobian = tf.tile(kp_source_jacobian, (tf.shape(kp_driving_jacobian)[0], 1, 1, 1))
         kp_source_jacobian = tf.reshape(kp_source_jacobian, (-1, 2, 2))
-        kp_new_jacobian = jacobian_diff @ kp_source_jacobian
-        kp_new_jacobian = tf.reshape(kp_new_jacobian, (-1, self.jacobian_number, 2, 2))
-        kp_driving_jacobian = tf.reshape(kp_driving_jacobian, (-1, self.jacobian_number, 2, 2))        
-        ones = kp_driving_jacobian * 0.0 + 1.0
+        if self.static_batch_size is None:
+            jacobian_diff = kp_driving_jacobian @ inv_kp_driving_initial_jacobian
+            kp_new_jacobian = jacobian_diff @ kp_source_jacobian
+        else:
+            jacobian_diff = jacobian_batch_matmul_rightkernel(kp_driving_jacobian, inv_kp_driving_initial_jacobian, self.jacobian_number)
+            kp_new_jacobian = jacobian_batch_matmul_rightkernel(jacobian_diff, kp_source_jacobian, self.jacobian_number)
         kp_new_jacobian = tf.where(use_relative_jacobian, kp_new_jacobian, kp_driving_jacobian)
         kp_new_jacobian = tf.where(use_relative_movement, kp_new_jacobian, kp_driving_jacobian)
         return kp_new_jacobian
         
-    
-    
-    @tf.autograph.experimental.do_not_convert
     def convex_hull_area(self, X):
+        L = 1 # I noticed very late that this method's only ever called on batch-1 kp tensors. Change this to tf.shape(X)[0]/static_batch_size if you need to reuse with >1 batches.
+        rng = tf.zeros(1, dtype='int32') # And change this to tf.range(L)
+        sqrng = rng # And this to tf.range(L * L)
         num_kp = self.num_kp
         O = X * 0
-        L = tf.shape(X)[0]
-        n = tf.cast(num_kp, tf.int32)
         l = tf.cast(tf.argmin(X[:, :, 0], 1), tf.int32)
+        n = tf.cast(num_kp, tf.int32)
         p = l
-        rng = tf.range(L)
         for i in range(num_kp):
+            rng_p_stack = tf.stack([rng, p])
             pt = tf.transpose(tf.stack([rng, p]), (1, 0))
             ind = tf.expand_dims(tf.gather_nd(X, pt), 1)
             O = tf.concat([O[:, 0:i], ind, O[:, i + 1 : n]], 1)
@@ -1006,7 +1069,7 @@ class ProcessKpDriving(tf.Module):
             p = tf.where((((q - l) < 1) & ((q - l) > -1)), p, q)
         j = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 1][:, 1], 1), O[:, :, 1][:, 2:], tf.expand_dims(O[:, :, 1][:, 0], 1)], 1), (1, 0))
         k = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 0][:, 1], 1), O[:, :, 0][:, 2:], tf.expand_dims(O[:, :, 0][:, 0], 1)], 1), (1, 0))
-        left = tf.reshape(tf.range(L * L), (L, L))
+        left = tf.reshape(sqrng, (L, L))
         right = tf.transpose(left)
         eye = tf.where(left==right, tf.ones((L,L)), tf.zeros((L,L)))
         inc = (eye * tf.tensordot(O[:, :, 0], j, 1)) @ tf.ones((L, 1)) - (eye * tf.tensordot(O[:, :, 1], k, 1)) @ tf.ones((L, 1))
@@ -1014,5 +1077,5 @@ class ProcessKpDriving(tf.Module):
         return area
 
 
-def build_process_kp_driving(num_kp=10, estimate_jacobian=True, single_jacobian_map=False, **kwargs):
-    return ProcessKpDriving(num_kp, estimate_jacobian, single_jacobian_map)
+def build_process_kp_driving(num_kp=10, estimate_jacobian=True, single_jacobian_map=False, static_batch_size=None, **kwargs):
+    return ProcessKpDriving(num_kp, estimate_jacobian, single_jacobian_map, static_batch_size)

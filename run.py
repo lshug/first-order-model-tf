@@ -21,6 +21,7 @@ parser.add_argument("--relative", action="store_true", help="relative kp mode")
 parser.add_argument("--adapt", dest="adapt_movement_scale", action="store_true", help="adapt movement to the proportion between the sizes of subjects in the input image and the driving video")
 parser.add_argument("--frames", type=int, default=-1, help="number of frames to process")
 parser.add_argument("--batchsize", dest="batch_size", type=int, default=4, help="batch size")
+parser.add_argument("--exactbatch", dest="exact_batch", action="store_true", help="tile source image to batch size and discard driving video frames beyond last index divisible by batch size")
 parser.add_argument("--profile", action="store_true", help="enable tensorboard profiling")
 parser.add_argument("--visualizer", action="store_true", help="enable visualizer, only relevant for dataset datamode")
 parser = parser.parse_args()
@@ -41,7 +42,7 @@ if parser.mode == 'animate':
         source_image, frames, fps = load_image_video_pair(parser.source_image, parser.driving_video, frames=parser.frames, frame_shape=frame_shape, num_channels=num_channels)
         predictions, _ = animate(source_image, frames, generator, kp_detector, process_kp_driving, 
                             parser.relative, parser.relative, parser.adapt_movement_scale,
-                            parser.batch_size, parser.profile)
+                            batch_size=parser.batch_size, exact_batch=parser.exact_batch, profile=parser.profile)
         output = parser.output
         if not parser.dontappend:
             output = output + format_appends[parser.target] + '.mp4'
@@ -58,7 +59,7 @@ if parser.mode == 'animate':
         for idx, pair in tqdm(enumerate(dataset)):
             source_image, frames = pair['source_video'][0][None], pair['driving_video']
             predictions, visualizations = animate(source_image, frames, generator, kp_detector, process_kp_driving, 
-                                    batch_size=1, profile=parser.profile, visualizer_params=visualizer_params, 
+                                    batch_size=1, exact_batch=parser.exact_batch, profile=parser.profile, visualizer_params=visualizer_params, 
                                     **config['animate_params']['normalization_params'])
             result_name = f'{idx}_{pair["source_name"]}_{pair["driving_name"]}.png'
             full_outdir = outdir + '/' + result_name

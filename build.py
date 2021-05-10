@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 js_command_base = "tensorflowjs_converter --control_flow_v2=True --input_format=tf_saved_model --metadata= --saved_model_tags=serve --signature_name=serving_default --strip_debug_ops=True --weight_shard_size_bytes=4194304 saved_models/{0}/{1} js/{0}/{1}"
 
-def build(checkpoint_path, config_path, output_name, module, prediction_only, tfjs, jsquantize):
+def build(checkpoint_path, config_path, output_name, module, prediction_only, tfjs, jsquantize, static_batch_size):
     js_command = js_command_base
     if jsquantize != 'none':
         js_command = js_command_base.replace('--metadata= ', '--metadata= --quantize_'+jsquantize+'=* ')
@@ -31,7 +31,8 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, tf
         single_jacobian_map = False
     
     if module == 'kp_detector' or module=='all':
-        kp_detector = build_kp_detector(checkpoint_path, **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"])
+        kp_detector = build_kp_detector(checkpoint_path, **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"], 
+                                        static_batch_size=static_batch_size)
         print(f"{output_name} - kp_detector")
         tf.saved_model.save(kp_detector, "saved_models/" + output_name + "/kp_detector", kp_detector.__call__.get_concrete_function())
         kp_detector_converter = tf.lite.TFLiteConverter.from_saved_model("saved_models/" + output_name + "/kp_detector")
@@ -43,7 +44,7 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, tf
             subprocess.run(command.split())
     
     if module == 'generator' or module=='all':
-        generator = build_generator(checkpoint_path, not prediction_only, **config["dataset_params"], **config["model_params"]["generator_params"], **config["model_params"]["common_params"], single_jacobian_map=single_jacobian_map)
+        generator = build_generator(checkpoint_path, not prediction_only, **config["dataset_params"], **config["model_params"]["generator_params"], **config["model_params"]["common_params"], single_jacobian_map=single_jacobian_map, static_batch_size=static_batch_size)
         print(f"{output_name} - generator")
         tf.saved_model.save(generator, "saved_models/" + output_name + "/generator", signatures=generator.__call__.get_concrete_function())
         generator_converter = tf.lite.TFLiteConverter.from_saved_model("saved_models/" + output_name + "/generator")
@@ -55,7 +56,7 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, tf
             subprocess.run(command.split())
 
     if module == 'process_kp_driving' or module=='all':
-        process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"], single_jacobian_map=single_jacobian_map)
+        process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"], single_jacobian_map=single_jacobian_map, static_batch_size=static_batch_size)
         print(f"{output_name} - process_kp_driving")
         tf.saved_model.save(process_kp_driving, "saved_models/" + output_name + "/process_kp_driving", process_kp_driving.__call__.get_concrete_function())
         process_kp_driving_converter = tf.lite.TFLiteConverter.from_saved_model("saved_models/" + output_name + "/process_kp_driving")
@@ -74,6 +75,7 @@ parser.add_argument('--predictiononly', action="store_true", help="build the gen
 parser.add_argument('--tfjs', action='store_true', help="build tf.js models, requires tensorflowjs_converter")
 parser.add_argument('--jsquantize', choices=['none', 'float16', 'uint16', 'uint8'], default='float16',
                     help="quantization to apply during tf.js conversions")
+parser.add_argument('--staticbatchsize', action='store', type=int, default=None, help="optional static batch size to use")
 parser = parser.parse_args()
 
 print("Building")
@@ -82,13 +84,13 @@ if not parser.a:
     checkpoint_path = f"checkpoint/{parser.model}-cpk.pth.tar"
     config_path = f"config/{parser.model}-256.yaml"
     output_name = config_path.split("/")[-1].split("256")[0][:-1]
-    build(checkpoint_path, config_path, output_name, parser.module, parser.predictiononly, parser.tfjs, parser.jsquantize)
+    build(checkpoint_path, config_path, output_name, parser.module, parser.predictiononly, parser.tfjs, parser.jsquantize, parser.staticbatchsize)
 else:
     configs = os.listdir("config/")
     checkpoints = ["checkpoint/" + x.split("256")[0] + "cpk.pth.tar" for x in configs]
     output_names = [x.split("/")[-1].split("256")[0][:-1] for x in configs]
     configs = ["config/" + x for x in configs]
     for i, config in enumerate(tqdm(configs)):
-        build(checkpoints[i], config, output_names[i], parser.module, parser.predictiononly, parser.tfjs, parser.jsquantize)
+        build(checkpoints[i], config, output_names[i], parser.module, parser.predictiononly, parser.tfjs, parser.jsquantize, parser.staticbatchsize)
 
 print("Done.")
