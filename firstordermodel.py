@@ -94,12 +94,6 @@ def batch_batch_four_by_four_inv(x):
     m = tf.stack([row1, row2], 3)
     return m / dets
 
-def jacobian_batch_matmul_rightkernel(left, right, jacobian_number):
-    # left: b jn 2 2, right: jn 2 2
-    res = []
-    for i in range(jacobian_number):
-        res.append(tf.tensordot(left[:, i:i+1, :, :], right[i], 1)) # b 1 2 2
-    return tf.concat(res, 1)
 
 def jacobian_batch_matmul_leftkernel(left, right, jacobian_number):
     # left: jn 2 2, right: b jn 2 2
@@ -184,11 +178,21 @@ class SparseMotion(layers.Layer):
                 reshaped_grid = tf.transpose(tf.reshape(coordinate_grid, (-1, h * w, 2, 1)), (1,0,2,3))
                 coordinate_grid = tf.reshape(tf.transpose((reshaped_jacobian @ reshaped_grid),(1,0,2,3)), (-1, self.num_kp, h, w, 2))
             else:
-                jacobian = jacobian_batch_matmul_leftkernel(left, right, jacobian_number)
+                right, left = tf.transpose(left, (0,2,1)), tf.transpose(right, (0,1,3,2))                
+                res = []
+                for i in range(jacobian_number):
+                    res.append(tf.tensordot(left[:, i:i+1, :, :], right[i], 1)) # b 1 2 2
+                jacobian_inter = tf.concat(res, 1)                
+                jacobian = tf.transpose(jacobian_inter, (0,1,3,2))                
                 jacobian = tf.tile(jacobian, (1, self.jacobian_tile, 1, 1))
                 reshaped_jacobian = tf.reshape(jacobian, (-1, 2, 2))
                 reshaped_grid = tf.reshape(coordinate_grid, (-1, h * w, 2))                
-                coordinate_grid = jacobian_grid_matmul(reshaped_jacobian, reshaped_grid, self.static_batch_size, self.num_kp, h, w)
+                out = []
+                r = self.static_batch_size * self.num_kp
+                for i in range(r):
+                    left, right = reshaped_jacobian[i], reshaped_grid[i]
+                    out.append(tf.reshape(tf.tensordot(right, tf.transpose(left), 1), (1, h*w, 2)))
+                coordinate_grid = tf.reshape(tf.concat(out, 0), (self.static_batch_size, self.num_kp, h, w, 2))                
 
         mult = tf.tile(tf.reshape(kp_source, (-1, self.num_kp, 1, 1, 2)), (bs, 1, h, w, 1))
         mult = 0 - mult
@@ -1043,8 +1047,14 @@ class ProcessKpDriving(tf.Module):
             jacobian_diff = kp_driving_jacobian @ inv_kp_driving_initial_jacobian
             kp_new_jacobian = jacobian_diff @ kp_source_jacobian
         else:
-            jacobian_diff = jacobian_batch_matmul_rightkernel(kp_driving_jacobian, inv_kp_driving_initial_jacobian, self.jacobian_number)
-            kp_new_jacobian = jacobian_batch_matmul_rightkernel(jacobian_diff, kp_source_jacobian, self.jacobian_number)
+            res = []
+            for i in range(self.jacobian_number):
+                res.append(tf.tensordot(kp_driving_jacobian[:, i:i+1, :, :], inv_kp_driving_initial_jacobian[i], 1)) # b 1 2 2
+            jacobian_diff = tf.concat(res, 1)
+            res = []
+            for i in range(self.jacobian_number):
+                res.append(tf.tensordot(jacobian_diff[:, i:i+1, :, :], kp_source_jacobian[i], 1)) # b 1 2 2
+            kp_new_jacobian = tf.concat(res, 1)
         kp_new_jacobian = tf.where(use_relative_jacobian, kp_new_jacobian, kp_driving_jacobian)
         kp_new_jacobian = tf.where(use_relative_movement, kp_new_jacobian, kp_driving_jacobian)
         return kp_new_jacobian
