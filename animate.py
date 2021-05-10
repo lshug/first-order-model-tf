@@ -34,6 +34,8 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         with context:
             start = i * batch_size
             end = (i + 1) * batch_size
+            if exact_batch and l - end < batch_size:
+                continue
             driving_video_tensor = driving_video[start:end]
             kp_driving = kp_detector(driving_video_tensor)
             if estimate_jacobian:
