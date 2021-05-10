@@ -9,6 +9,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
             batch_size=4, exact_batch=False, profile=False, visualizer_params=None):
     l = len(driving_video)
     source_image = tf.convert_to_tensor(source_image, "float32")
+    driving_video = tf.convert_to_tensor(driving_video)
     
     if profile:
         tf.profiler.experimental.start("./log")
@@ -31,7 +32,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         with context:
             start = i * batch_size
             end = (i + 1) * batch_size
-            driving_video_tensor = tf.convert_to_tensor(driving_video[start:end])
+            driving_video_tensor = driving_video[start:end]
             kp_driving = kp_detector(driving_video_tensor)
             if kp_driving_initial is None:
                 kp_driving_initial = {k:kp_driving[k][0,:] for k in kp_source.keys()}
@@ -55,7 +56,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
                     del out['sparse_deformed']
                 except:
                     pass
-                visualization = Visualizer(**visualizer_params).visualize(source=source_image[0], driving=driving_video[i], out=out)
+                visualization = Visualizer(**visualizer_params).visualize(source=source_image[0], driving=driving_video[i].numpy(), out=out)
                 visualizations.append(visualization)
     
     if profile:
