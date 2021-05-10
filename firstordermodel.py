@@ -976,8 +976,8 @@ class ProcessKpDriving(tf.Module):
         self.jacobian_number = jacobian_number
         self.static_batch_size = static_batch_size
         self.n = tf.cast(num_kp, 'int32')
-        self.j = [tf.cast(x, 'int32') for x in range(num_kp)]
         self.L = tf.cast(1, 'int32') # I noticed very late that convex_hull_area's only ever called on batch-1 kp tensors. Change this to tf.shape(X)[0]/static_batch_size if you need to reuse with >1 batches.
+        self.j = [tf.repeat(tf.cast(x, 'int32'), self.L) for x in range(num_kp)]
         self.rng = tf.zeros(1, dtype='int32') # And change this to tf.range(L)
         self.sqrng = self.rng # And this to tf.range(L * L)
         self.L_ones = tf.ones((self.L, 1))
@@ -1051,7 +1051,8 @@ class ProcessKpDriving(tf.Module):
         kp_new_jacobian = tf.where(use_relative_jacobian, kp_new_jacobian, kp_driving_jacobian)
         kp_new_jacobian = tf.where(use_relative_movement, kp_new_jacobian, kp_driving_jacobian)
         return kp_new_jacobian
-        
+    
+    @tf.function
     def convex_hull_area(self, X):
         L = self.L
         L_ones = self.L_ones
@@ -1074,7 +1075,7 @@ class ProcessKpDriving(tf.Module):
                     (tf.gather_nd(X, qt)[:, 1] - tf.gather_nd(X, pt)[:, 1]) * (X[:, j, 0] - tf.gather_nd(X, qt)[:, 0])
                     - (tf.gather_nd(X, qt)[:, 0] - tf.gather_nd(X, pt)[:, 0]) * (X[:, j, 1] - tf.gather_nd(X, qt)[:, 1])
                 ) < 0
-                q = tf.where(b, tf.repeat(self.j[j], L), q)
+                q = tf.where(b, self.j[j], q)
                 qt = tf.transpose(tf.stack([rng, q]), (1, 0))
             p = tf.where((((q - l) < 1) & ((q - l) > -1)), p, q)
         u = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 1][:, 1], 1), O[:, :, 1][:, 2:], tf.expand_dims(O[:, :, 1][:, 0], 1)], 1), (1, 0))
