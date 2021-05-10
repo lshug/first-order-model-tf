@@ -299,7 +299,7 @@ class Interpolate(layers.Layer):
         grid = tf.cast(grid, "int32")
         self.y_max = int((input_shape[1] * self.scale_factor[0]) // 1)
         self.x_max = int((input_shape[2] * self.scale_factor[1]) // 1)
-        self.grid = tf.reshape(grid, (1, self.y_max, self.x_max))
+        self.grid = tf.reshape(grid, (1, self.y_max, self.x_max, 2))
         super(Interpolate, self).build(input_shape)
 
     def call(self, img):
@@ -315,7 +315,6 @@ class Interpolate(layers.Layer):
         g = tf.tile(tf.reshape(batch_range, (-1, 1, 1, 1)), (1, y_max, x_max, 1)) # batch_range, batch, y_max, x_max
         grid = tf.tile(grid, (N, 1, 1, 1))
         grid = tf.concat([g, grid], 3)
-
         out = tf.gather_nd(img, grid)
         return out
 
