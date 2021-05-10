@@ -283,7 +283,7 @@ class Interpolate(layers.Layer):
 
     def build(self, input_shape):
         if self.static_batch_size is not None:
-            self.brange = tf.range(self.static_batch_size)
+            self.brange = tf.reshape(tf.range(self.static_batch_size), (-1, 1, 1, 1))
         H, W = input_shape[1], input_shape[2]
         H_f, W_f = tf.cast(H, "float32"), tf.cast(W, "float32")
         y_max = tf.floor(input_shape[1] * self.scale_factor[0])
@@ -299,7 +299,7 @@ class Interpolate(layers.Layer):
         grid = tf.cast(grid, "int32")
         self.y_max = int((input_shape[1] * self.scale_factor[0]) // 1)
         self.x_max = int((input_shape[2] * self.scale_factor[1]) // 1)
-        self.grid = grid
+        self.grid = tf.reshape(grid, (1, self.y_max, self.x_max))
         super(Interpolate, self).build(input_shape)
 
     def call(self, img):
@@ -308,12 +308,12 @@ class Interpolate(layers.Layer):
         grid = self.grid
         if self.static_batch_size is None:
             N = tf.shape(img)[0]
-            batch_range = tf.range(N)
+            batch_range = tf.reshape(tf.range(N), (-1, 1, 1, 1))
         else:
             N = self.static_batch_size
             batch_range = self.brange
         g = tf.tile(tf.reshape(batch_range, (-1, 1, 1, 1)), (1, y_max, x_max, 1)) # batch_range, batch, y_max, x_max
-        grid = tf.tile(tf.reshape(grid, (1, y_max, x_max, 2)), (N, 1, 1, 1))
+        grid = tf.tile(grid, (N, 1, 1, 1))
         grid = tf.concat([g, grid], 3)
 
         out = tf.gather_nd(img, grid)
@@ -724,6 +724,8 @@ def build_kp_detector_base(
     
     # make model
     model = keras.Model(inp, out_dict)
+    model.trainable = False
+    model.compile()
     
     if checkpoint is not None and '.pth.tar' in checkpoint:
         sd = load_torch_checkpoint(checkpoint)["kp_detector"]
@@ -781,9 +783,9 @@ class KpDetector(tf.Module):
         )
         self.__call__ = tf.function(input_signature=[tf.TensorSpec([static_batch_size, frame_shape[0], frame_shape[1], num_channels], tf.float32)])(self.__call__)
         super(KpDetector, self).__init__()
-
+    
     def __call__(self, img):
-        return self.kp_detector(img, training=False)
+        return self.kp_detector(img)
 
 
 def build_kp_detector(checkpoint, static_batch_size=None, **kwargs):
@@ -876,6 +878,7 @@ def build_generator_base(
     
     model = keras.Model(inputs, out_dict)
     model.trainable = False
+    model.compile()
 
     sd = load_torch_checkpoint(checkpoint)["generator"]
     sd = list(sd.items())
@@ -951,10 +954,10 @@ class Generator(tf.Module):
         super(Generator, self).__init__()
     
     def call_nojacobian(self, source_image, kp_driving, kp_source):
-        return self.generator([source_image, kp_driving, kp_source], training=False)
+        return self.generator([source_image, kp_driving, kp_source])
 
     def __call__(self, source_image, kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian):
-        return self.generator([source_image, kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian], training=False)
+        return self.generator([source_image, kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian])
             
 
 
