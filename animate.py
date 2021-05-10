@@ -15,15 +15,17 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         tf.profiler.experimental.start("./log")
 
     if exact_batch:
-        kp_source = {k:v[0:1] for k,v in kp_detector(np.tile(source_image, (batch_size, 1, 1, 1))).items()}
+        kp_source = {k:v[0][None] for k,v in kp_detector(np.tile(source_image, (batch_size, 1, 1, 1))).items()}
         driving_video = driving_video[:batch_size * (len(driving_video) // batch_size)]
+        kp_driving_initial = {k:v[0][None] for k,v in kp_detector(np.tile(driving_video[0][None], (batch_size, 1, 1, 1))).items()}
     else:
         kp_source = kp_detector(source_image)
+        kp_driving_initial = kp_detector(driving_video[0][None])
     estimate_jacobian = 'jacobian' in kp_source.keys()
     
     predictions = []
     visualizations = []
-    kp_driving_initial = kp_detector(driving_video[0][None])
+    
     for i in tqdm(range(math.ceil(l / batch_size))):
         if profile:
             context = tf.profiler.experimental.Trace('animate', step_num=i, _r=1)
