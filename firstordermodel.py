@@ -81,32 +81,6 @@ def make_coordinate_grid(spatial_size, dtype):
     meshed = tf.concat([tf.expand_dims(xx, 2), tf.expand_dims(yy, 2)], 2)
     return meshed
 
-def batch_batch_four_by_four_inv(x):
-    num_kp = x.shape[1]
-    a = x[:, :, 0, 0]
-    b = x[:, :, 0, 1]
-    c = x[:, :, 1, 0]
-    d = x[:, :, 1, 1]
-    dets = a * d - b * c
-    dets = tf.reshape(dets, (-1, num_kp, 1, 1))
-    row1 = tf.stack([d, (-1 * c)], 2)
-    row2 = tf.stack([(-1 * b), a], 2)
-    m = tf.stack([row1, row2], 3)
-    return m / dets
-
-
-def jacobian_batch_matmul_leftkernel(left, right, jacobian_number):
-    # left: jn 2 2, right: b jn 2 2
-    right, left = tf.transpose(left, (0,2,1)), tf.transpose(right, (0,1,3,2))
-    return tf.transpose(jacobian_batch_matmul_rightkernel(left, right, jacobian_number), (0,1,3,2))
-
-def jacobian_grid_matmul(jacobian, grid, static_batch_size, num_kp, h, w):
-    out = []
-    bs = static_batch_size * num_kp
-    for i in range(bs):
-        left, right = jacobian[i], grid[i]
-        out.append(tf.reshape(tf.tensordot(right, tf.transpose(left), 1), (1, h*w, 2)))
-    return tf.reshape(tf.concat(out, 0), (static_batch_size, num_kp, h, w, 2))
 
 class GaussianToKpTail(layers.Layer):
     def __init__(self, temperature=0.1, spatial_size=(58, 58), num_kp=10, **kwargs):
@@ -151,6 +125,19 @@ class SparseMotion(layers.Layer):
         self.estimate_jacobian = estimate_jacobian
         self.static_batch_size = static_batch_size
         super(SparseMotion, self).__init__(**kwargs)
+    
+    def batch_batch_four_by_four_inv(self, x):
+        num_kp = self.num_kp
+        a = x[:, :, 0, 0]
+        b = x[:, :, 0, 1]
+        c = x[:, :, 1, 0]
+        d = x[:, :, 1, 1]
+        dets = a * d - b * c
+        dets = tf.reshape(dets, (-1, num_kp, 1, 1))
+        row1 = tf.stack([d, (-1 * c)], 2)
+        row2 = tf.stack([(-1 * b), a], 2)
+        m = tf.stack([row1, row2], 3)
+        return m / dets
 
     def call(self, x):
         kp_driving, kp_source = x[0], x[2]
@@ -170,7 +157,7 @@ class SparseMotion(layers.Layer):
             kp_driving_jacobian, kp_source_jacobian = x[1], x[3]
             jacobian_number = kp_driving_jacobian.shape[1]
             left = tf.reshape(kp_source_jacobian, (-1, 2, 2)) # 4*bs 2 2. untiled: 4 2 2
-            right = batch_batch_four_by_four_inv(kp_driving_jacobian)
+            right = self.batch_batch_four_by_four_inv(kp_driving_jacobian)
             if self.static_batch_size is None:
                 jacobian = left @ right # b 10 2 2
                 jacobian = tf.tile(jacobian, (1, self.jacobian_tile, 1, 1))
@@ -1040,7 +1027,7 @@ class ProcessKpDriving(tf.Module):
     
     def calculate_new_jacobian(self, kp_driving_jacobian, kp_driving_initial_jacobian, kp_source_jacobian,
                                use_relative_movement, use_relative_jacobian):
-        inv_kp_driving_initial_jacobian = batch_batch_four_by_four_inv(kp_driving_initial_jacobian)
+        inv_kp_driving_initial_jacobian = self.batch_batch_four_by_four_inv(kp_driving_initial_jacobian)
         inv_kp_driving_initial_jacobian = tf.reshape(inv_kp_driving_initial_jacobian, (-1, 2, 2))
         kp_source_jacobian = tf.reshape(kp_source_jacobian, (-1, 2, 2))
         if self.static_batch_size is None:
@@ -1093,6 +1080,20 @@ class ProcessKpDriving(tf.Module):
         inc = (eye * tf.tensordot(O[:, :, 0], u, 1)) @ L_ones - (eye * tf.tensordot(O[:, :, 1], k, 1)) @ L_ones
         area = 0.5 * tf.math.sqrt(inc * inc)[0]
         return area
+    
+    def batch_batch_four_by_four_inv(self, x):
+        num_kp = self.num_kp
+        a = x[:, :, 0, 0]
+        b = x[:, :, 0, 1]
+        c = x[:, :, 1, 0]
+        d = x[:, :, 1, 1]
+        dets = a * d - b * c
+        dets = tf.reshape(dets, (-1, num_kp, 1, 1))
+        row1 = tf.stack([d, (-1 * c)], 2)
+        row2 = tf.stack([(-1 * b), a], 2)
+        m = tf.stack([row1, row2], 3)
+        return m / dets
+
 
 
 def build_process_kp_driving(num_kp=10, estimate_jacobian=True, single_jacobian_map=False, static_batch_size=None, **kwargs):
