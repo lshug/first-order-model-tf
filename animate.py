@@ -3,13 +3,13 @@ import tensorflow as tf
 from logger import Visualizer
 from tqdm import tqdm
 from contextlib import nullcontext
+import numpy as np
 
 def animate(source_image, driving_video, generator, kp_detector, process_kp_driving, 
             use_relative_movement=True, use_relative_jacobian=True, adapt_movement_scale=True,
             batch_size=4, exact_batch=False, profile=False, visualizer_params=None):
+    
     l = len(driving_video)
-    source_image = tf.convert_to_tensor(source_image, "float32")
-    driving_video = tf.convert_to_tensor(driving_video)
     
     if profile:
         tf.profiler.experimental.start("./log")
@@ -47,7 +47,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
                     kp_driving['value'], kp_driving_initial['value'], kp_source['value'], use_relative_movement, adapt_movement_scale
                 )
                 out = generator([source_image, kp_norm['value'], kp_norm['value']])        
-            predictions.append(out['prediction'])
+            predictions.append(out['prediction'].numpy())
             if batch_size == 1 and visualizer_params is not None:
                 out['kp_driving'] = {k:v[0] for k,v in kp_driving.items()}
                 out['kp_source'] = kp_source
@@ -62,4 +62,4 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
     if profile:
         tf.profiler.experimental.stop()
         
-    return tf.concat(predictions, 0).numpy(), tf.concat(visualizations, 0).numpy() if len(visualizations) > 0 else None
+    return np.concatenate(predictions, 0), tf.concat(visualizations, 0).numpy() if len(visualizations) > 0 else None
