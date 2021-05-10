@@ -1055,7 +1055,7 @@ class ProcessKpDriving(tf.Module):
         num_kp = self.num_kp
         n = self.n
         O = X * 0
-        l = tf.cast(tf.argmin(X[:, :, 0], 1), tf.int32)        
+        l = tf.argmin(X[:, :, 0], 1, output_type='int32')
         p = l
         for i in range(num_kp):
             rng_p_stack = tf.stack([rng, p])
@@ -1066,8 +1066,8 @@ class ProcessKpDriving(tf.Module):
             qt = tf.transpose(tf.stack([rng, q]), (1, 0))
             for j in range(num_kp):
                 b = (
-                    (tf.gather_nd(X, qt)[:, 1] - tf.gather_nd(X, pt)[:, 1]) * (X[:, tf.cast(j, tf.int32), 0] - tf.gather_nd(X, qt)[:, 0])
-                    - (tf.gather_nd(X, qt)[:, 0] - tf.gather_nd(X, pt)[:, 0]) * (X[:, tf.cast(j, tf.int32), 1] - tf.gather_nd(X, qt)[:, 1])
+                    (tf.gather_nd(X, qt)[:, 1] - tf.gather_nd(X, pt)[:, 1]) * (X[:, j, 0] - tf.gather_nd(X, qt)[:, 0])
+                    - (tf.gather_nd(X, qt)[:, 0] - tf.gather_nd(X, pt)[:, 0]) * (X[:, j, 1] - tf.gather_nd(X, qt)[:, 1])
                 ) < 0
                 q = tf.where(b, tf.repeat(self.j[j], L), q)
                 qt = tf.transpose(tf.stack([rng, q]), (1, 0))
