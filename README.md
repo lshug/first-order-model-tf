@@ -15,7 +15,7 @@ usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--mode {animate,recons
 Run inference
 
 optional arguments:
-  -h, --help            show this help message and exit
+  -h, --help            show this help bmessage and exit
   --target {direct,savedmodel,tflite}
                         model version to run (between running the model directly, running the model's saved_model, and running its converted tflite
   --mode {animate,reconstruction}
@@ -40,8 +40,8 @@ optional arguments:
 ```
 
 ```
-usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--predictiononly] [--tfjs] [--jsquantize {none,float16,uint16,uint8}]
-                [--staticbatchsize STATICBATCHSIZE]
+usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--nolite] [--predictiononly] [--tfjs]
+                [--jsquantize {none,float16,uint16,uint8}] [--staticbatchsize STATICBATCHSIZE]
 
 Build saved_model, tflite, and tf.js modules from checkpoints and configs.
 
@@ -51,6 +51,7 @@ optional arguments:
   -a                    build models for all config files
   --module {all,kp_detector,generator,process_kp_driving}
                         module to build
+  --nolite              don't build tflite modules
   --predictiononly      build the generator so that it only outputs predictions
   --tfjs                build tf.js models, requires tensorflowjs_converter
   --jsquantize {none,float16,uint16,uint8}
