@@ -306,8 +306,8 @@ class Interpolate(layers.Layer):
         flat_grid = tf.transpose(flat_grid, (1, 0))
         grid = tf.reshape(flat_grid, grid_shape)
         grid = tf.cast(grid, "int32")
-        self.y_max = y_max
-        self.x_max = x_max
+        self.y_max = tf.cast(y_max, "int32")
+        self.x_max = tf.cast(x_max, "int32")
         self.grid = grid
         super(Interpolate, self).build(input_shape)
 
