@@ -97,7 +97,7 @@ with tf.device(device):
                 visualization_filename = outdir + '/' + image_name
                 save_visualization(visualization_filename, visualizations)
             loss_list.append(loss)
-    print("Reconstruction loss: {}".format(sum(loss_list)/len(loss_list)))
+        print("Reconstruction loss: {}".format(sum(loss_list)/len(loss_list)))
         
 
 print("Done.")
