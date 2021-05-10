@@ -35,7 +35,8 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
             driving_video_tensor = driving_video[start:end]
             kp_driving = kp_detector(driving_video_tensor)
             if kp_driving_initial is None:
-                kp_driving_initial = {k:kp_driving[k][0,:] for k in kp_source.keys()}
+                kp_driving_initial = {k:kp_driving[k][0] for k in kp_source.keys()}
+            input(kp_driving_initial['value'].shape)
             if estimate_jacobian:
                 kp_norm = process_kp_driving(
                     kp_driving['value'], kp_driving['jacobian'], kp_driving_initial['value'], kp_driving_initial['jacobian'], kp_source['value'], kp_source['jacobian'],
