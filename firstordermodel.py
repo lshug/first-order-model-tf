@@ -704,18 +704,21 @@ def build_kp_detector_base(
         num_jacobian_map = 1 if single_jacobian_map else num_kp
         padded_feature_map = layers.ZeroPadding2D(pad)(feature_map)
         jacobian_map = layers.Conv2D(4 * num_jacobian_map, kernel_size=(7, 7), name="jacmap")(padded_feature_map)
-        jacobian_map = layers.Reshape((jacobian_map.shape[1], jacobian_map.shape[2], num_jacobian_map, 4), name='jacmapreshape0')(jacobian_map) #b h w num_kp 4, bhw14
+        jm0_shape = jacobian_map.shape
+        
+        jacobian_map = layers.Lambda(lambda l: tf.reshape(l, (-1, jm0_shape[1], jm0_shape[2], num_jacobian_map, 4)), name='jacmapreshape0')(jacobian_map) #b h w num_kp 4, bhw14
         if single_jacobian_map:
             jacobian_map = layers.Lambda(lambda l: tf.tile(l, (1, 1, 1, num_kp, 1)))(jacobian_map)
-        jacobian_map = layers.Reshape((jacobian_map.shape[1] * jacobian_map.shape[2] * num_jacobian_map, 4), name='jacmapreshape1')(jacobian_map)
+        jm1_shape = jacobian_map.shape
+        jacobian_map = layers.Lambda(lambda l: tf.reshape(l, (-1, jm1_shape[1] * jm1_shape[2] * num_jacobian_map, 4)), name='jacmapreshape1')(jacobian_map)
         heatmap = layers.Lambda(lambda l: tf.expand_dims(l, 4))(heatmap)
         heatmap = layers.Lambda(lambda l: tf.tile(l, (1, 1, 1, 1, 4)))(heatmap)
-        heatmap = layers.Reshape((heatmap.shape[1] * heatmap.shape[2] * heatmap.shape[3], 4), name='heatmapreshape')(heatmap)
+        heatmap_shape = heatmap.shape
+        heatmap = layers.Lambda(lambda l: tf.reshape(l, (-1,heatmap_shape[1] * heatmap_shape[2] * heatmap_shape[3], 4)), name='heatmapreshape')(heatmap)
         jacobian = layers.Multiply(name='jacobian_mul')([heatmap, jacobian_map])  # 1 h w 10 4
-
-        jacobian = layers.Reshape((-1, num_jacobian_map, 4), name='jacobianreshape0')(jacobian)
+        jacobian = layers.Lambda(lambda l: tf.reshape(l, (-1, heatmap_shape[1] * heatmap_shape[2], num_jacobian_map, 4)), name='jacobianreshape0')(jacobian)        
         jacobian = layers.Lambda(lambda l: tf.reduce_sum(l, 1))(jacobian)
-        jacobian = layers.Reshape((num_jacobian_map, 2, 2), name='jacobianreshape1')(jacobian)
+        jacobian = layers.Lambda(lambda l: tf.reshape(l, (-1, num_jacobian_map, 2, 2)), name='jacobianreshape1')(jacobian)
         out_dict['jacobian'] = jacobian
         
     
