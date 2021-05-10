@@ -322,7 +322,7 @@ class Interpolate(layers.Layer):
         else:
             N = self.static_batch_size
             batch_range = self.brange
-        g = tf.cast(tf.expand_dims(tf.tile(tf.reshape(batch_range, (-1, 1, 1)), (1, y_max, x_max)), 3), "int32")
+        g = tf.tile(tf.reshape(batch_range, (-1, 1, 1, 1)), (1, y_max, x_max, 1)) # batch_range, batch, y_max, x_max
         grid = tf.tile(tf.reshape(grid, (1, y_max, x_max, 2)), (N, 1, 1, 1))
         grid = tf.concat([g, grid], 3)
 
