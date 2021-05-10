@@ -45,6 +45,7 @@ def load_models_direct(model, prediction_only=False):
     else:
         generator = lambda arr: generator_base(arr[0], arr[1], arr[2])
     process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"], single_jacobian_map=kp_detector.single_jacobian_map)
+    kp_detector, process_kp_driving, generator = tf.function(kp_detector), tf.function(process_kp_driving), tf.function(generator)    
     return kp_detector, process_kp_driving, generator, None
 
 def load_models_savedmodel(model, **kwargs):
@@ -79,6 +80,7 @@ def load_models_savedmodel(model, **kwargs):
                     use_relative_movement=tf.convert_to_tensor(o),
                     adapt_movement_scale=tf.convert_to_tensor(p),
                 )
+    kp_detector, process_kp_driving, generator = tf.function(kp_detector), tf.function(process_kp_driving), tf.function(generator)
     return kp_detector, process_kp_driving, generator, [[kp_detector_loader, kp_detector_base], [generator_loader, generator_base], [process_kp_driving_loader, process_kp_driving_base]]
 
 def load_models_tflite(model, **kwargs):
