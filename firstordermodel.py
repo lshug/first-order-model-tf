@@ -281,9 +281,7 @@ class Interpolate(layers.Layer):
         self.static_batch_size = static_batch_size
         super(Interpolate, self).__init__(**kwargs)
 
-    def build(self, input_shape):
-        if self.static_batch_size is not None:
-            self.brange = tf.reshape(tf.range(self.static_batch_size), (-1, 1, 1, 1))
+    def build(self, input_shape):        
         H, W = input_shape[1], input_shape[2]
         H_f, W_f = tf.cast(H, "float32"), tf.cast(W, "float32")
         y_max = tf.floor(input_shape[1] * self.scale_factor[0])
@@ -300,21 +298,24 @@ class Interpolate(layers.Layer):
         self.y_max = int((input_shape[1] * self.scale_factor[0]) // 1)
         self.x_max = int((input_shape[2] * self.scale_factor[1]) // 1)
         self.grid = tf.reshape(grid, (1, self.y_max, self.x_max, 2))
+        if self.static_batch_size is not None:
+            N = self.static_batch_size
+            batch_range = tf.reshape(tf.range(self.static_batch_size), (-1, 1, 1, 1))
+            g = tf.tile(tf.reshape(batch_range, (-1, 1, 1, 1)), (1, y_max, x_max, 1)) # batch_range, batch, y_max, x_max
+            grid = tf.tile(grid, (N, 1, 1, 1))
+            self.grid = tf.concat([g, grid], 3)
         super(Interpolate, self).build(input_shape)
 
     def call(self, img):
-        y_max = self.y_max
-        x_max = self.x_max
         grid = self.grid
         if self.static_batch_size is None:
+            y_max = self.y_max
+            x_max = self.x_max
             N = tf.shape(img)[0]
             batch_range = tf.reshape(tf.range(N), (-1, 1, 1, 1))
-        else:
-            N = self.static_batch_size
-            batch_range = self.brange
-        g = tf.tile(tf.reshape(batch_range, (-1, 1, 1, 1)), (1, y_max, x_max, 1)) # batch_range, batch, y_max, x_max
-        grid = tf.tile(grid, (N, 1, 1, 1))
-        grid = tf.concat([g, grid], 3)
+            g = tf.tile(tf.reshape(batch_range, (-1, 1, 1, 1)), (1, y_max, x_max, 1)) # batch_range, batch, y_max, x_max
+            grid = tf.tile(grid, (N, 1, 1, 1))
+            grid = tf.concat([g, grid], 3)
         out = tf.gather_nd(img, grid)
         return out
 
