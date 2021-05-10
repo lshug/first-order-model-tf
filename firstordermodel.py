@@ -977,6 +977,10 @@ class ProcessKpDriving(tf.Module):
         self.static_batch_size = static_batch_size
         self.n = tf.cast(num_kp, 'int32')
         self.j = [tf.cast(x, 'int32') for x in range(num_kp)]
+        self.L = tf.cast(1, 'int32') # I noticed very late that convex_hull_area's only ever called on batch-1 kp tensors. Change this to tf.shape(X)[0]/static_batch_size if you need to reuse with >1 batches.
+        self.rng = tf.zeros(1, dtype='int32') # And change this to tf.range(L)
+        self.sqrng = self.rng # And this to tf.range(L * L)
+        self.L_ones = tf.ones((self.L, 1))
         if static_batch_size is not None:
             self.brange = tf.range(static_batch_size)
             self.bsqrange = tf.range(static_batch_size * static_batch_size)
@@ -1049,9 +1053,10 @@ class ProcessKpDriving(tf.Module):
         return kp_new_jacobian
         
     def convex_hull_area(self, X):
-        L = 1 # I noticed very late that this method's only ever called on batch-1 kp tensors. Change this to tf.shape(X)[0]/static_batch_size if you need to reuse with >1 batches.
-        rng = tf.zeros(1, dtype='int32') # And change this to tf.range(L)
-        sqrng = rng # And this to tf.range(L * L)
+        L = self.L
+        L_ones = self.L_ones
+        rng = self.rng
+        sqrng = self.sqrng
         num_kp = self.num_kp
         n = self.n
         O = X * 0
@@ -1076,8 +1081,8 @@ class ProcessKpDriving(tf.Module):
         k = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 0][:, 1], 1), O[:, :, 0][:, 2:], tf.expand_dims(O[:, :, 0][:, 0], 1)], 1), (1, 0))
         left = tf.reshape(sqrng, (L, L))
         right = tf.transpose(left)
-        eye = tf.where(left==right, tf.ones((L,L)), tf.zeros((L,L)))
-        inc = (eye * tf.tensordot(O[:, :, 0], u, 1)) @ tf.ones((L, 1)) - (eye * tf.tensordot(O[:, :, 1], k, 1)) @ tf.ones((L, 1))
+        eye = tf.cast((left==right), 'float32')
+        inc = (eye * tf.tensordot(O[:, :, 0], u, 1)) @ L_ones - (eye * tf.tensordot(O[:, :, 1], k, 1)) @ L_ones
         area = 0.5 * tf.math.sqrt(inc * inc)[0]
         return area
 
