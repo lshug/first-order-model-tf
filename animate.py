@@ -39,13 +39,13 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
             driving_video_tensor = driving_video[start:end]
             kp_driving = kp_detector(driving_video_tensor)
             if estimate_jacobian:
-                kp_norm = process_kp_driving(
+                kp_norm = kp_driving if not use_relative_movement else process_kp_driving(
                     kp_driving['value'], kp_driving['jacobian'], kp_driving_initial['value'], kp_driving_initial['jacobian'], kp_source['value'], kp_source['jacobian'],
                     use_relative_movement, use_relative_jacobian, adapt_movement_scale,
                 )
                 out = generator([source_image, kp_norm['value'], kp_norm['jacobian'], kp_source['value'], kp_source['jacobian']])
             else:
-                kp_norm = process_kp_driving(
+                kp_norm = kp_driving if not use_relative_movement else process_kp_driving(
                     kp_driving['value'], kp_driving_initial['value'], kp_source['value'], use_relative_movement, adapt_movement_scale
                 )
                 out = generator([source_image, kp_norm['value'], kp_norm['value']])        

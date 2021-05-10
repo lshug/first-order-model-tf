@@ -15,7 +15,7 @@ usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--mode {animate,recons
 Run inference
 
 optional arguments:
-  -h, --help            show this help bmessage and exit
+  -h, --help            show this help message and exit
   --target {direct,savedmodel,tflite}
                         model version to run (between running the model directly, running the model's saved_model, and running its converted tflite
   --mode {animate,reconstruction}
@@ -34,9 +34,10 @@ optional arguments:
   --frames FRAMES       number of frames to process
   --batchsize BATCH_SIZE
                         batch size
-  --exactbatch          tile source image to batch size and discard driving video frames beyond last index divisible by batch size
+  --exactbatch          force static batch size, tile source image to batch size and discard driving video frames beyond last index divisible by batch size
   --profile             enable tensorboard profiling
   --visualizer          enable visualizer, only relevant for dataset datamode
+
 ```
 
 ```

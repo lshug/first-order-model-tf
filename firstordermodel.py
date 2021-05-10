@@ -257,6 +257,7 @@ class KpToGaussian(layers.Layer):
         super(KpToGaussian, self).__init__(**kwargs)
 
     def call(self, x):
+        kp_variance = 0.01
         mean = x
         grid = self.grid  # HW2
         mean = tf.reshape(mean, (-1, self.num_kp, 1, 1, 2))  # B 10 1 1 2
@@ -264,11 +265,10 @@ class KpToGaussian(layers.Layer):
         mean_sub = self.reshape(mean_sub)
         mean_sub = tf.square(mean_sub)
         mean_sub = tf.reshape(mean_sub, (-1, self.num_kp, self.spatial_size[0], self.spatial_size[1], 2))
-        out = tf.math.exp(-0.5 * tf.reduce_sum(mean_sub, -1) / self.kp_variance)
+        out = tf.math.exp(-0.5 * tf.reduce_sum(mean_sub, -1) / kp_variance)
         return out
 
     def build(self, input_shape):
-        self.kp_variance = tf.cast(0.01, "float32")
         grid = make_coordinate_grid(self.spatial_size, "float32")[None][None]
         grid = tf.tile(grid, (1, self.num_kp, 1, 1, 1))
         self.grid = grid

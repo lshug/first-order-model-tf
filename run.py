@@ -22,7 +22,7 @@ parser.add_argument("--relative", action="store_true", help="relative kp mode")
 parser.add_argument("--adapt", dest="adapt_movement_scale", action="store_true", help="adapt movement to the proportion between the sizes of subjects in the input image and the driving video")
 parser.add_argument("--frames", type=int, default=-1, help="number of frames to process")
 parser.add_argument("--batchsize", dest="batch_size", type=int, default=4, help="batch size")
-parser.add_argument("--exactbatch", dest="exact_batch", action="store_true", help="tile source image to batch size and discard driving video frames beyond last index divisible by batch size")
+parser.add_argument("--exactbatch", dest="exact_batch", action="store_true", help="force static batch size, tile source image to batch size and discard driving video frames beyond last index divisible by batch size")
 parser.add_argument("--profile", action="store_true", help="enable tensorboard profiling")
 parser.add_argument("--visualizer", action="store_true", help="enable visualizer, only relevant for dataset datamode")
 parser = parser.parse_args()
@@ -39,7 +39,7 @@ frame_shape = config['dataset_params']['frame_shape']
 num_channels = config['model_params']['common_params']['num_channels']
 
 with tf.device(device):
-    kp_detector, process_kp_driving, generator, _interpreter_obj_list = load_funcs[parser.target](parser.model, prediction_only=parser.datamode=='file') 
+    kp_detector, process_kp_driving, generator, _interpreter_obj_list = load_funcs[parser.target](parser.model, prediction_only=parser.datamode=='file', static_batch_size = None if not parser.exact_batch else parser.batch_size) 
     format_appends = {'direct':'', 'savedmodel':'.savedmodel', 'tflite':'.tflite'}
 
     if parser.mode == 'animate':
