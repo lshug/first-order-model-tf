@@ -312,7 +312,6 @@ class Interpolate(layers.Layer):
         super(Interpolate, self).build(input_shape)
 
     def call(self, img):
-        scale_factor = self.scale_factor
         y_max = self.y_max
         x_max = self.x_max
         grid = self.grid
