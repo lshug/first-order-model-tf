@@ -470,10 +470,10 @@ class GridSample(layers.Layer):
         n_mask = (y_n > -1) & (y_n < iH)
         e_mask = (x_e > -1) & (x_e < iW)
         s_mask = (y_s > -1) & (y_s < iH)
-        nw_mask = w_mask & n_mask
-        ne_mask = e_mask & n_mask
-        sw_mask = s_mask & w_mask
-        se_mask = e_mask & s_mask
+        nw_mask = tf.cast((w_mask & n_mask), 'int32')
+        ne_mask = tf.cast((e_mask & n_mask), 'int32')
+        sw_mask = tf.cast((s_mask & w_mask), 'int32')
+        se_mask = tf.cast((e_mask & s_mask), 'int32')
 
         # loop
         if self.static_batch_size is None:
@@ -486,24 +486,24 @@ class GridSample(layers.Layer):
         b = tf.cast(b, "int32")
 
         grid_nw = tf.concat([b, y_n, x_w], 3)
-        grid_nw = tf.where(nw_mask, grid_nw, 0)
+        grid_nw = nw_mask * grid_nw
         nw_val = tf.gather_nd(img, grid_nw)
-        nw_val = tf.where(nw_mask, nw_val, 0.0)
+        nw_val = tf.cast(nw_mask, 'float32') * nw_val
 
         grid_ne = tf.concat([b, y_n, x_e], 3)
-        grid_ne = tf.where(ne_mask, grid_ne, 0)
+        grid_ne = ne_mask * grid_ne
         ne_val = tf.gather_nd(img, grid_ne)
-        ne_val = tf.where(ne_mask, ne_val, 0.0)
+        ne_val = tf.cast(ne_mask, 'float32') * ne_val
 
         grid_sw = tf.concat([b, y_s, x_w], 3)
-        grid_sw = tf.where(sw_mask, grid_sw, 0)
+        grid_sw = sw_mask * grid_sw
         sw_val = tf.gather_nd(img, grid_sw)
-        sw_val = tf.where(sw_mask, sw_val, 0.0)
+        sw_val = tf.cast(sw_mask, 'float32') * sw_val
 
         grid_se = tf.concat([b, y_s, x_e], 3)
-        grid_se = tf.where(se_mask, grid_se, 0)
+        grid_se = se_mask * grid_se
         se_val = tf.gather_nd(img, grid_se)
-        se_val = tf.where(se_mask, se_val, 0.0)
+        se_val = tf.cast(se_mask, 'float32') * se_val
 
         out = nw * nw_val + sw * sw_val + ne * ne_val + se * se_val
         return out
