@@ -48,15 +48,12 @@ class AntiAliasInterpolation2d(layers.Layer):
     def kernel_slice(self, x, i):
         return tf.expand_dims(x[:, :, :, i], 3)
 
-    def channel_slice(self, x, i, h, w):
-        return tf.reshape(x[:, :, :, i], (-1, h, w, 1))
-
     def call(self, x):
         out = layers.ZeroPadding2D((self.ka, self.kb))(x)
         outputs = [0] * self.groups
         for i in range(self.groups):
             k = self.ks[i]
-            im = self.channel_slice(out, i, out.shape[1], out.shape[2])
+            im = tf.reshape(out[:,:,:,i], (-1, out.shape[1], out.shape[2], 1))
             outputs[i] = tf.nn.conv2d(im, k, strides=(1, 1, 1, 1), padding="VALID")
         out = tf.concat(outputs, 3)
         out = self.interpolate(out)
@@ -261,17 +258,17 @@ class KpToGaussian(layers.Layer):
 
     def call(self, x):
         mean = x
-        kp_variance = tf.cast(0.01, "float32")
         grid = self.grid  # HW2
         mean = tf.reshape(mean, (-1, self.num_kp, 1, 1, 2))  # B 10 1 1 2
         mean_sub = grid - mean
         mean_sub = self.reshape(mean_sub)
         mean_sub = tf.square(mean_sub)
         mean_sub = tf.reshape(mean_sub, (-1, self.num_kp, self.spatial_size[0], self.spatial_size[1], 2))
-        out = tf.math.exp(-0.5 * tf.reduce_sum(mean_sub, -1) / kp_variance)
+        out = tf.math.exp(-0.5 * tf.reduce_sum(mean_sub, -1) / self.kp_variance)
         return out
 
     def build(self, input_shape):
+        self.kp_variance = tf.cast(0.01, "float32")
         grid = make_coordinate_grid(self.spatial_size, "float32")[None][None]
         grid = tf.tile(grid, (1, self.num_kp, 1, 1, 1))
         self.grid = grid
@@ -309,13 +306,15 @@ class Interpolate(layers.Layer):
         flat_grid = tf.transpose(flat_grid, (1, 0))
         grid = tf.reshape(flat_grid, grid_shape)
         grid = tf.cast(grid, "int32")
+        self.y_max = y_max
+        self.x_max = x_max
         self.grid = grid
         super(Interpolate, self).build(input_shape)
 
     def call(self, img):
         scale_factor = self.scale_factor
-        y_max = tf.floor(img.shape[1] * scale_factor[0])
-        x_max = tf.floor(img.shape[2] * scale_factor[1])
+        y_max = self.y_max
+        x_max = self.x_max
         grid = self.grid
         if self.static_batch_size is None:
             N = tf.shape(img)[0]
@@ -433,8 +432,8 @@ class GridSample(layers.Layer):
         img = data[0]
         grid = data[1]
 
-        H, W = tf.cast(grid.shape[1], "float32"), tf.cast(grid.shape[2], "float32")
-        iH, iW = img.shape[1], img.shape[2]
+        H, W = self.H, self.W
+        iH, iW = self.iH, self.iW
 
         # extract x,y from grid
         x = tf.reshape(grid[:, :, :, 0], (-1, H, W, 1))
@@ -514,6 +513,10 @@ class GridSample(layers.Layer):
     def build(self, input_shape):
         if self.static_batch_size is not None:
             self.brange = tf.range(self.static_batch_size)
+        img_shape = input_shape[0]
+        grid_shape = input_shape[1]
+        self.H, self.W = tf.cast(grid_shape[1], "float32"), tf.cast(grid_shape[2], "float32")
+        self.iH, self.iW = tf.cast(img_shape[1], "int32"), tf.cast(img_shape[2], "int32")
         super(GridSample, self).build(input_shape)
     
     def get_config(self):
@@ -972,6 +975,8 @@ class ProcessKpDriving(tf.Module):
         jacobian_number = 1 if single_jacobian_map else self.num_kp
         self.jacobian_number = jacobian_number
         self.static_batch_size = static_batch_size
+        self.n = tf.cast(num_kp, 'int32')
+        self.j = [tf.cast(x, 'int32') for x in range(num_kp)]
         if static_batch_size is not None:
             self.brange = tf.range(static_batch_size)
             self.bsqrange = tf.range(static_batch_size * static_batch_size)
@@ -1048,9 +1053,9 @@ class ProcessKpDriving(tf.Module):
         rng = tf.zeros(1, dtype='int32') # And change this to tf.range(L)
         sqrng = rng # And this to tf.range(L * L)
         num_kp = self.num_kp
+        n = self.n
         O = X * 0
-        l = tf.cast(tf.argmin(X[:, :, 0], 1), tf.int32)
-        n = tf.cast(num_kp, tf.int32)
+        l = tf.cast(tf.argmin(X[:, :, 0], 1), tf.int32)        
         p = l
         for i in range(num_kp):
             rng_p_stack = tf.stack([rng, p])
@@ -1064,15 +1069,15 @@ class ProcessKpDriving(tf.Module):
                     (tf.gather_nd(X, qt)[:, 1] - tf.gather_nd(X, pt)[:, 1]) * (X[:, tf.cast(j, tf.int32), 0] - tf.gather_nd(X, qt)[:, 0])
                     - (tf.gather_nd(X, qt)[:, 0] - tf.gather_nd(X, pt)[:, 0]) * (X[:, tf.cast(j, tf.int32), 1] - tf.gather_nd(X, qt)[:, 1])
                 ) < 0
-                q = tf.where(b, tf.repeat(tf.cast(j, tf.int32), L), q)
+                q = tf.where(b, tf.repeat(self.j[j], L), q)
                 qt = tf.transpose(tf.stack([rng, q]), (1, 0))
             p = tf.where((((q - l) < 1) & ((q - l) > -1)), p, q)
-        j = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 1][:, 1], 1), O[:, :, 1][:, 2:], tf.expand_dims(O[:, :, 1][:, 0], 1)], 1), (1, 0))
+        u = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 1][:, 1], 1), O[:, :, 1][:, 2:], tf.expand_dims(O[:, :, 1][:, 0], 1)], 1), (1, 0))
         k = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 0][:, 1], 1), O[:, :, 0][:, 2:], tf.expand_dims(O[:, :, 0][:, 0], 1)], 1), (1, 0))
         left = tf.reshape(sqrng, (L, L))
         right = tf.transpose(left)
         eye = tf.where(left==right, tf.ones((L,L)), tf.zeros((L,L)))
-        inc = (eye * tf.tensordot(O[:, :, 0], j, 1)) @ tf.ones((L, 1)) - (eye * tf.tensordot(O[:, :, 1], k, 1)) @ tf.ones((L, 1))
+        inc = (eye * tf.tensordot(O[:, :, 0], u, 1)) @ tf.ones((L, 1)) - (eye * tf.tensordot(O[:, :, 1], k, 1)) @ tf.ones((L, 1))
         area = 0.5 * tf.math.sqrt(inc * inc)[0]
         return area
 
