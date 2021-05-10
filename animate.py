@@ -27,7 +27,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         if profile:
             context = tf.profiler.experimental.Trace('train', step_num=i, _r=1)
         else:
-            context = nullcontext
+            context = nullcontext()
         with context:
             start = i * batch_size
             end = (i + 1) * batch_size
