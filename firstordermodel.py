@@ -986,8 +986,8 @@ class ProcessKpDriving(tf.Module):
         input_signature=[
                 tf.TensorSpec([static_batch_size, num_kp, 2], tf.float32),
                 tf.TensorSpec([static_batch_size, jacobian_number, 2, 2], tf.float32),
-                tf.TensorSpec([num_kp, 2], tf.float32),
-                tf.TensorSpec([jacobian_number, 2, 2], tf.float32),
+                tf.TensorSpec([1, num_kp, 2], tf.float32),
+                tf.TensorSpec([1, jacobian_number, 2, 2], tf.float32),
                 tf.TensorSpec([1, num_kp, 2], tf.float32),
                 tf.TensorSpec([1, jacobian_number, 2, 2], tf.float32),
                 tf.TensorSpec((), tf.bool),
@@ -1019,7 +1019,6 @@ class ProcessKpDriving(tf.Module):
         return {'value':kp_new, 'jacobian':kp_new_jacobian}
        
     def calculate_new_driving(self, kp_driving, kp_driving_initial, kp_source, use_relative_movement, adapt_movement_scale):
-        kp_driving_initial = kp_driving_initial[None]
         source_area = self.convex_hull_area(kp_source)        
         driving_area = self.convex_hull_area(kp_driving_initial)
         scale = tf.sqrt(source_area) / tf.sqrt(driving_area)
@@ -1037,7 +1036,6 @@ class ProcessKpDriving(tf.Module):
     
     def calculate_new_jacobian(self, kp_driving_jacobian, kp_driving_initial_jacobian, kp_source_jacobian,
                                use_relative_movement, use_relative_jacobian):
-        kp_driving_initial_jacobian = kp_driving_initial_jacobian[None]
         inv_kp_driving_initial_jacobian = batch_batch_four_by_four_inv(kp_driving_initial_jacobian)
         inv_kp_driving_initial_jacobian = tf.reshape(inv_kp_driving_initial_jacobian, (-1, 2, 2))
         kp_source_jacobian = tf.reshape(kp_source_jacobian, (-1, 2, 2))
