@@ -1,3 +1,4 @@
+import tensorflow as tf
 import argparse
 import os
 import yaml
@@ -25,6 +26,8 @@ parser.add_argument("--exactbatch", dest="exact_batch", action="store_true", hel
 parser.add_argument("--profile", action="store_true", help="enable tensorboard profiling")
 parser.add_argument("--visualizer", action="store_true", help="enable visualizer, only relevant for dataset datamode")
 parser = parser.parse_args()
+if parser.profile:
+    tf.debugging.set_log_device_placement(True)
 
 load_funcs = {'direct':load_models_direct, 'savedmodel':load_models_savedmodel, 'tflite':load_models_tflite}
 
