@@ -458,10 +458,11 @@ class GridSample(layers.Layer):
         y_s = tf.cast(y_s, "int32")
 
         # forward
-        w_mask = (x_w > -1) & (x_w < iW)
-        n_mask = (y_n > -1) & (y_n < iH)
-        e_mask = (x_e > -1) & (x_e < iW)
-        s_mask = (y_s > -1) & (y_s < iH)
+        w_mask = (x_w > -1) & (x_w < self.i_W)
+        n_mask = (y_n > -1) & (y_n < self.i_H)
+        e_mask = (x_e > -1) & (x_e < self.i_W)
+        s_mask = (y_s > -1) & (y_s < self.i_H)
+        
         nw_mask = tf.cast((w_mask & n_mask), 'int32')
         ne_mask = tf.cast((e_mask & n_mask), 'int32')
         sw_mask = tf.cast((s_mask & w_mask), 'int32')
