@@ -26,7 +26,7 @@ parser.add_argument("--exactbatch", dest="exact_batch", action="store_true", hel
 parser.add_argument("--profile", action="store_true", help="enable tensorboard profiling")
 parser.add_argument("--visualizer", action="store_true", help="enable visualizer, only relevant for dataset datamode")
 parser = parser.parse_args()
-device = 'gpu:0' if tf.test.is_gpu_available() else 'cpu'
+device = 'gpu:0' if len(tf.config.list_physical_devices('GPU')) > 0 else 'cpu'
 if parser.profile:
     tf.debugging.set_log_device_placement(True)
 
