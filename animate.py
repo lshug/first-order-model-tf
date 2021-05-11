@@ -17,17 +17,21 @@ def first_elem_tile_reshape(x, tile):
 def tile(x, tile):
     return tf.tile(x, tile)
     
-@tf.function
-def slice_driving(x, i, j):
-  return x[i:j]
+
 
 @tf.function
 def convert(x):
-  return tf.identity(x)
+    return tf.identity(x)
 
 def animate(source_image, driving_video, generator, kp_detector, process_kp_driving, 
             use_relative_movement=True, use_relative_jacobian=True, adapt_movement_scale=True,
             batch_size=4, exact_batch=False, profile=False, visualizer_params=None):
+    
+    
+    @tf.function(input_signature=[tf.TensorSpec(shape=None, dtype=tf.float32), [tf.TensorSpec(shape=(), dtype=tf.int32), tf.TensorSpec(shape=(), dtype=tf.int32)]])
+    def slice_driving(x, t):
+        i, j = t
+        return x[i:j]
     
     l = len(driving_video)
     source_image, driving_video = convert(source_image), convert(driving_video)
@@ -36,7 +40,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
 
     if exact_batch:
         kp_source = {k:first_elem_reshape(v) for k,v in kp_detector(tile(source_image, (batch_size, 1, 1, 1))).items()}
-        driving_video = slice_driving(driving_video, tf.constant(0), tf.constant(batch_size * (len(driving_video) // batch_size)))
+        driving_video = slice_driving(driving_video, (0, batch_size * (len(driving_video) // batch_size)))
         kp_driving_initial = {k:first_elem_reshape(v) for k,v in kp_detector(first_elem_tile_reshape(driving_video, (batch_size, 1, 1, 1))).items()}
     else:
         kp_source = kp_detector(source_image)
@@ -56,7 +60,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
             end = (i + 1) * batch_size
             if exact_batch and l - end < batch_size:
                 continue
-            driving_video_tensor = slice_driving(driving_video, tf.constant(start), tf.constant(end))
+            driving_video_tensor = slice_driving(driving_video, (start, end))
             kp_driving = kp_detector(driving_video_tensor)
             if estimate_jacobian:
                 kp_norm = kp_driving if not use_relative_movement else process_kp_driving(
