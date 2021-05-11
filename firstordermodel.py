@@ -303,12 +303,14 @@ class Interpolate(layers.Layer):
             batch_range = tf.reshape(tf.range(self.static_batch_size), (-1, 1, 1, 1))
             g = tf.tile(tf.reshape(batch_range, (-1, 1, 1, 1)), (1, y_max, x_max, 1)) # batch_range, batch, y_max, x_max
             grid = tf.tile(grid, (N, 1, 1, 1))
-            self.grid = tf.concat([g, grid], 3)
+            grid = tf.concat([g, grid], 3)
+            self.static_grid = self.add_weight("static_grid", grid.shape, trainable=False, dtype='int32')
+            self.set_weights([grid])
         super(Interpolate, self).build(input_shape)
 
     def call(self, img):
-        grid = self.grid
         if self.static_batch_size is None:
+            grid = self.grid
             y_max = self.y_max
             x_max = self.x_max
             N = tf.shape(img)[0]
@@ -316,7 +318,9 @@ class Interpolate(layers.Layer):
             g = tf.tile(tf.reshape(batch_range, (-1, 1, 1, 1)), (1, y_max, x_max, 1)) # batch_range, batch, y_max, x_max
             grid = tf.tile(grid, (N, 1, 1, 1))
             grid = tf.concat([g, grid], 3)
-        out = tf.gather_nd(img, grid)
+            out = tf.gather_nd(img, grid)
+        else:
+            out = tf.gather_nd(img, self.static_grid)
         return out
 
     def compute_output_shape(self, input_shape):
