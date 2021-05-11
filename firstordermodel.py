@@ -608,7 +608,7 @@ def dense_motion(
     static_batch_size=None,
 ):
     if scale_factor != 1:
-        source = AntiAliasInterpolation2d(num_channels, scale_factor, static_batch_size=static_batch_size)(source)
+        source = AntiAliasInterpolation2d(num_channels, scale_factor, static_batch_size=1)(source)
 
     h, w = shape
     h = int(h * scale_factor)
