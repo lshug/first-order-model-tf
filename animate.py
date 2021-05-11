@@ -17,8 +17,8 @@ def first_elem_tile_reshape(x, tile):
 def tile(x, tile):
     return tf.tile(x, tile)
     
-@tf.function#(experimental_follow_type_hints=True)
-def slice_driving(x, i : int, j : int):
+@tf.function
+def slice_driving(x, i, j):
   return x[i:j]
 
 @tf.function
