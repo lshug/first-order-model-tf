@@ -621,7 +621,7 @@ def dense_motion(
     
     inp = layers.Concatenate(4)([heatmap_representation, deformed_source])  # B 11 H W C+1
     inp = layers.Lambda(lambda l: tf.transpose(l, (0, 2, 3, 1, 4)))(inp)
-    inp = layers.Reshape((h, w, (num_kp + 1) * (num_channels + 1)), name='dense_motion_networkinputreshape')(inp)  # won't reshape, but will assert the shape
+    inp = layers.Lambda(lambda l: tf.reshape(l, (-1, h, w, (num_kp + 1) * (num_channels + 1))), name='dense_motion_networkinputreshape')(inp)  # won't reshape, but will assert the shape
     x = inp
     l = []
     l.append(x)
@@ -638,15 +638,15 @@ def dense_motion(
     mask = layers.Lambda(lambda l: keras.activations.softmax(l))(mask)
     outmask = mask
     
-    mask = layers.Reshape((mask.shape[1], mask.shape[2], num_kp + 1), name='dense_motion_networkmaskreshape0')(mask)
+    mask = layers.Lambda(lambda l: tf.reshape(l, (-1mask.shape[1], mask.shape[2], num_kp + 1)), name='dense_motion_networkmaskreshape0')(mask)
     mh, mw = mask.shape[1], mask.shape[2]
-    mask = layers.Reshape((mh * mw, num_kp + 1, 1), name='dense_motion_networkmaskreshape1')(mask)
+    mask = layers.Lambda(lambda l: tf.reshape(l, (-1, mh * mw, num_kp + 1, 1)), name='dense_motion_networkmaskreshape1')(mask)
     mask = layers.Permute((2, 1, 3))(mask)
 
-    sparse_motion = layers.Reshape((num_kp + 1, mh * mw, 2), name='dense_motion_networkparsemotionreshape')(sparse_motion)
+    sparse_motion = layers.Lambda(lambda l: tf.reshape(l, (-1, num_kp + 1, mh * mw, 2)), name='dense_motion_networkparsemotionreshape')(sparse_motion)
     deformation = layers.Multiply()([sparse_motion, mask])  # b 11 64 64 2
     deformation = layers.Lambda(lambda l: K.sum(l, axis=1))(deformation)  # b 64 64 2
-    deformation = layers.Reshape((mh, mw, 2), name='dense_motion_networkdeformationreshape')(deformation)
+    deformation = layers.Lambda(lambda l: tf.reshape(l, (-1, mh, mw, 2)), name='dense_motion_networkdeformationreshape')(deformation)
     
     if estimate_occlusion_map:
         occlusion_map = layers.Conv2D(1, kernel_size=(7, 7), padding="same", name="dense_motion_networkocclusion")(x)
