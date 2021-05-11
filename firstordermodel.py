@@ -471,11 +471,12 @@ class GridSample(layers.Layer):
         if self.static_batch_size is None:
             N = tf.shape(x)[0]
             b = tf.range(N)
+            b = tf.reshape(b, (-1, 1, 1, 1))
+            b = tf.tile(b, (1, H, W, 1))
+            b = tf.cast(b, "int32")
         else:
             b = self.brange
-        b = tf.reshape(b, (-1, 1, 1, 1))
-        b = tf.tile(b, (1, H, W, 1))
-        b = tf.cast(b, "int32")
+        
 
         grid_nw = tf.concat([b, y_n, x_w], 3)
         grid_nw = nw_mask * grid_nw
@@ -504,11 +505,11 @@ class GridSample(layers.Layer):
         return input_shape[0][0], input_shape[1][1], input_shape[1][2], input_shape[0][3]
 
     def build(self, input_shape):
-        if self.static_batch_size is not None:
-            self.brange = tf.range(self.static_batch_size)
         img_shape = input_shape[0]
         grid_shape = input_shape[1]
         self.i_H, self.i_W = grid_shape[1], grid_shape[2]
+        if self.static_batch_size is not None:
+            self.brange = tf.tile(tf.reshape(tf.range(self.static_batch_size), (-1,1,1,1)), (1, self.i_H, self.i_W, 1)).numpy()
         self.H, self.W = tf.cast(grid_shape[1], "float32"), tf.cast(grid_shape[2], "float32")
         self.iH, self.iW = tf.cast(img_shape[1], "int32"), tf.cast(img_shape[2], "int32")
         super(GridSample, self).build(input_shape)
@@ -862,7 +863,7 @@ def build_generator_base(
         x = ResBlock2d(x, min(max_features, block_expansion * (2 ** num_down_blocks)), name="bottleneckr" + str(i))
 
     for i in range(num_down_blocks):
-        x = UpBlock2d(x, min(max_features, block_expansion * (2 ** (num_down_blocks - i - 1))), name="up_blocks" + str(i))
+        x = UpBlock2d(x, min(max_features, block_expansion * (2 ** (num_down_blocks - i - 1))), name="up_blocks" + str(i), static_batch_size=static_batch_size)
 
     x = layers.Conv2D(num_channels, kernel_size=(7, 7), padding="same", name="final")(x)
     out = layers.Activation("sigmoid", name="output")(x)    
