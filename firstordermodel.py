@@ -638,7 +638,7 @@ def dense_motion(
     mask = layers.Lambda(lambda l: keras.activations.softmax(l))(mask)
     outmask = mask
     
-    mask = layers.Lambda(lambda l: tf.reshape(l, (-1mask.shape[1], mask.shape[2], num_kp + 1)), name='dense_motion_networkmaskreshape0')(mask)
+    mask = layers.Lambda(lambda l: tf.reshape(l, (-1, mask.shape[1], mask.shape[2], num_kp + 1)), name='dense_motion_networkmaskreshape0')(mask)
     mh, mw = mask.shape[1], mask.shape[2]
     mask = layers.Lambda(lambda l: tf.reshape(l, (-1, mh * mw, num_kp + 1, 1)), name='dense_motion_networkmaskreshape1')(mask)
     mask = layers.Permute((2, 1, 3))(mask)
