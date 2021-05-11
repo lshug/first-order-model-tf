@@ -304,8 +304,7 @@ class Interpolate(layers.Layer):
             g = tf.tile(tf.reshape(batch_range, (-1, 1, 1, 1)), (1, y_max, x_max, 1)) # batch_range, batch, y_max, x_max
             grid = tf.tile(grid, (N, 1, 1, 1))
             grid = tf.concat([g, grid], 3)
-            self.static_grid = self.add_weight("static_grid", grid.shape, trainable=False, dtype='int32')
-            self.set_weights([grid])
+            self.static_grid = grid.numpy()
         super(Interpolate, self).build(input_shape)
 
     def call(self, img):
