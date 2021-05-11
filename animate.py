@@ -17,7 +17,7 @@ def first_elem_tile_reshape(x, tile):
 def tile(x, tile):
     return tf.tile(x, tile)
     
-@tf.function(experimental_follow_type_hints=True)
+@tf.function#(experimental_follow_type_hints=True)
 def slice_driving(x, i : int, j : int):
   return x[i:j]
 
@@ -36,7 +36,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
 
     if exact_batch:
         kp_source = {k:first_elem_reshape(v) for k,v in kp_detector(tile(source_image, (batch_size, 1, 1, 1))).items()}
-        driving_video = slice_driving(driving_video, 0, batch_size * (len(driving_video) // batch_size))
+        driving_video = slice_driving(driving_video, tf.constant(0), tf.constant(batch_size * (len(driving_video) // batch_size)))
         kp_driving_initial = {k:first_elem_reshape(v) for k,v in kp_detector(first_elem_tile_reshape(driving_video, (batch_size, 1, 1, 1))).items()}
     else:
         kp_source = kp_detector(source_image)
@@ -56,7 +56,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
             end = (i + 1) * batch_size
             if exact_batch and l - end < batch_size:
                 continue
-            driving_video_tensor = slice_driving(driving_video, start, end)
+            driving_video_tensor = slice_driving(driving_video, tf.constant(start), tf.constant(end))
             kp_driving = kp_detector(driving_video_tensor)
             if estimate_jacobian:
                 kp_norm = kp_driving if not use_relative_movement else process_kp_driving(
