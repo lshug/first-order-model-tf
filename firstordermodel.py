@@ -983,6 +983,10 @@ class ProcessKpDriving(tf.Module):
         self.j = [tf.repeat(tf.cast(x, 'int32'), self.L) for x in range(num_kp)]
         self.rng = tf.zeros(1, dtype='int32') # And change this to tf.range(L)
         self.sqrng = self.rng # And this to tf.range(L * L)
+        sqrng = self.sqrng
+        left = tf.reshape(sqrng, (self.L.numpy(), self.L.numpy()))
+        right = tf.transpose(left)
+        self.eye = tf.cast((left==right), 'float32').numpy()
         self.L_ones = tf.ones((self.L, 1))
         if static_batch_size is not None:
             self.brange = tf.range(static_batch_size)
@@ -1086,10 +1090,8 @@ class ProcessKpDriving(tf.Module):
                 qt = tf.transpose(tf.stack([rng, q]), (1, 0))
             p = tf.where((((q - l) < 1) & ((q - l) > -1)), p, q)
         u = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 1][:, 1], 1), O[:, :, 1][:, 2:], tf.expand_dims(O[:, :, 1][:, 0], 1)], 1), (1, 0))
-        k = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 0][:, 1], 1), O[:, :, 0][:, 2:], tf.expand_dims(O[:, :, 0][:, 0], 1)], 1), (1, 0))
-        left = tf.reshape(sqrng, (L, L))
-        right = tf.transpose(left)
-        eye = tf.cast((left==right), 'float32')
+        k = tf.transpose(tf.concat([tf.expand_dims(O[:, :, 0][:, 1], 1), O[:, :, 0][:, 2:], tf.expand_dims(O[:, :, 0][:, 0], 1)], 1), (1, 0))        
+        eye = self.eye
         inc = (eye * tf.tensordot(O[:, :, 0], u, 1)) @ L_ones - (eye * tf.tensordot(O[:, :, 1], k, 1)) @ L_ones
         area = 0.5 * tf.math.sqrt(inc * inc)[0]
         return area
