@@ -263,7 +263,7 @@ class KpToGaussian(layers.Layer):
         grid = make_coordinate_grid(self.spatial_size, "float32")[None][None]
         grid = tf.tile(grid, (1, self.num_kp, 1, 1, 1))
         self.grid = grid
-        self.reshape = layers.Reshape((self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2), name='kptogaussianreshape')
+        self.reshape = layers.Lambda(lambda l: tf.reshape(l, (-1, self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2)), name='kptogaussianreshape')
         super(KpToGaussian, self).build(input_shape)
 
     def compute_output_shape(self, input_shape):
