@@ -40,7 +40,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         kp_driving_initial = {k:first_elem_reshape(v) for k,v in kp_detector(first_elem_tile_reshape(driving_video, (batch_size, 1, 1, 1))).items()}
     else:
         kp_source = kp_detector(source_image)
-        kp_driving_initial = kp_detector(driving_video[0][None])
+        kp_driving_initial = kp_detector(first_elem_reshape(driving_video))
     estimate_jacobian = 'jacobian' in kp_source.keys()
     
     predictions = []
