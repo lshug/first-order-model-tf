@@ -53,7 +53,10 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
                     kp_driving['value'], kp_driving_initial['value'], kp_source['value'], use_relative_movement, adapt_movement_scale
                 )
                 out = generator([source_image, kp_norm['value'], kp_norm['value']])        
-            predictions.append(out['prediction'].numpy())
+            try:
+                predictions.append(out['prediction'].numpy())
+            except:
+                predictions.append(out['prediction'])
             if batch_size == 1 and visualizer_params is not None:
                 out['kp_driving'] = {k:v[0] for k,v in kp_driving.items()}
                 out['kp_source'] = kp_source
@@ -62,10 +65,10 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
                     del out['sparse_deformed']
                 except:
                     pass
-                visualization = Visualizer(**visualizer_params).visualize(source=source_image[0], driving=driving_video[i].numpy(), out=out)
+                visualization = Visualizer(**visualizer_params).visualize(source=source_image[0], driving=driving_video[i], out=out)
                 visualizations.append(visualization)
     
     if profile:
         tf.profiler.experimental.stop()
         
-    return np.concatenate(predictions, 0), tf.concat(visualizations, 0).numpy() if len(visualizations) > 0 else None
+    return np.concatenate(predictions, 0), np.concatenate(visualizations, 0) if len(visualizations) > 0 else None
