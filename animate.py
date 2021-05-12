@@ -36,9 +36,11 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         return x[0:batch_size], x[batch_size:]
     
     l = len(driving_video)
+    original_l = l
     if exact_batch:
         new_l = math.ceil(len(driving_video) / batch_size) * batch_size
         driving_video = np.concatenate([driving_video, np.tile(driving_video[-1][None], (new_l - l, 1, 1, 1))], 0)
+        l = new_l
     
     source_image, driving_video = convert(source_image), convert(driving_video)
     if profile:
@@ -98,4 +100,4 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
     if profile:
         tf.profiler.experimental.stop()
         
-    return np.concatenate(predictions, 0)[:l], np.concatenate(visualizations, 0) if len(visualizations) > 0 else None
+    return np.concatenate(predictions, 0)[:original_l], np.concatenate(visualizations, 0) if len(visualizations) > 0 else None
