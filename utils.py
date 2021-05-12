@@ -32,13 +32,13 @@ def save_frames_png(path, predictions):
     prediction = (255 * prediction).astype(np.uint8)
     imageio.imwrite(path, prediction)
 
-def load_models_direct(model, prediction_only=False, static_batch_size=None):
+def load_models_direct(model, prediction_only=False, static_batch_size=None, disable_adapt_movement_scale=False):
     config_path = f"config/{model}-256.yaml"
     with open(config_path) as f:
         config = yaml.load(f, Loader=yaml.Loader)
     frame_shape = config["dataset_params"]["frame_shape"]
     kp_detector = build_kp_detector(f"./checkpoint/{model}-cpk.pth.tar", **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"], 
-                                    static_batch_size=static_batch_size)
+                                    static_batch_size=static_batch_size, disable_adapt_movement_scale=disable_adapt_movement_scale)
     generator = build_generator(f"./checkpoint/{model}-cpk.pth.tar", not prediction_only, **config["dataset_params"], **config["model_params"]["generator_params"], 
                                      **config["model_params"]["common_params"], single_jacobian_map=kp_detector.single_jacobian_map, static_batch_size=static_batch_size)
     process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"], single_jacobian_map=kp_detector.single_jacobian_map, static_batch_size=static_batch_size)
@@ -57,25 +57,23 @@ def load_models_savedmodel(model, **kwargs):
     kp_detector = lambda l: kp_detector_base(img=l)
     generator = lambda *args: generator_base(source_image=args[0], kp_driving=args[1], kp_driving_jacobian=args[2], kp_source=args[3], kp_source_jacobian=args[4])
     if estimate_jacobian:
-        process_kp_driving = lambda l, m, n, o, p, q, r, s, t: process_kp_driving_base(
+        process_kp_driving = lambda l, m, n, o, p, q, r, s: process_kp_driving_base(
                 kp_driving=l,
                 kp_driving_jacobian=m,
                 kp_driving_initial=n,
                 kp_driving_initial_jacobian=o,
                 kp_source=p,
                 kp_source_jacobian=q,
-                use_relative_movement=tf.convert_to_tensor(r),
-                use_relative_jacobian=tf.convert_to_tensor(s),
-                adapt_movement_scale=tf.convert_to_tensor(t),
+                use_relative_jacobian=tf.convert_to_tensor(r),
+                adapt_movement_scale=tf.convert_to_tensor(s),
             )
     else:
         generator = lambda l: generator_base(source_image=l[0], kp_driving=l[1], kp_source=l[2])
-        process_kp_driving = lambda l, m, n, o, p: process_kp_driving_base(
+        process_kp_driving = lambda l, m, n, o: process_kp_driving_base(
                     kp_driving=l,
                     kp_driving_initial=m,
-                    kp_source=n,
-                    use_relative_movement=tf.convert_to_tensor(o),
-                    adapt_movement_scale=tf.convert_to_tensor(p),
+                    kp_source=n,                    
+                    adapt_movement_scale=tf.convert_to_tensor(o),
                 )
     kp_detector, process_kp_driving, generator = tf.function(kp_detector), tf.function(process_kp_driving), tf.function(generator)
     return kp_detector, process_kp_driving, generator, [[kp_detector_loader, kp_detector_base], [generator_loader, generator_base], [process_kp_driving_loader, process_kp_driving_base]]
@@ -91,25 +89,23 @@ def load_models_tflite(model, **kwargs):
     kp_detector = lambda img: kp_detector_base(img=img)
     if estimate_jacobian:
         generator = lambda *l: generator_base(source_image=l[0], kp_driving=l[1], kp_driving_jacobian=l[2], kp_source=l[3], kp_source_jacobian=l[4])
-        process_kp_driving = lambda l, m, n, o, p, q, r, s, t: process_kp_driving_base(
+        process_kp_driving = lambda l, m, n, o, p, q, r, s: process_kp_driving_base(
                 kp_driving=l,
                 kp_driving_jacobian=m,
                 kp_driving_initial=n,
                 kp_driving_initial_jacobian=o,
                 kp_source=p,
                 kp_source_jacobian=q,
-                use_relative_movement=tf.convert_to_tensor(r),
-                use_relative_jacobian=tf.convert_to_tensor(s),
-                adapt_movement_scale=tf.convert_to_tensor(t),
+                use_relative_jacobian=tf.convert_to_tensor(r),
+                adapt_movement_scale=tf.convert_to_tensor(s),
                 )
     else:
         generator = lambda *l: generator_base(source_image=l[0], kp_driving=l[1], kp_source=l[2])
-        process_kp_driving = lambda l, m, n, o, p: process_kp_driving_base(
+        process_kp_driving = lambda l, m, n, o: process_kp_driving_base(
                     kp_driving=l,
                     kp_driving_initial=m,
                     kp_source=n,
-                    use_relative_movement=tf.convert_to_tensor(o),
-                    adapt_movement_scale=tf.convert_to_tensor(p),
+                    adapt_movement_scale=tf.convert_to_tensor(o),
                     )
     return kp_detector, process_kp_driving, generator, [kp_detector_interpreter, process_kp_driving_interpreter, generator_interpreter]
 

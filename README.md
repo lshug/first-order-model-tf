@@ -43,8 +43,8 @@ optional arguments:
 ```
 
 ```
-usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--nolite] [--predictiononly] [--tfjs]
-                [--jsquantize {none,float16,uint16,uint8}] [--staticbatchsize STATICBATCHSIZE]
+usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--nolite] [--predictiononly] [--tfjs] [--jsquantize {none,float16,uint16,uint8}]
+                [--staticbatchsize STATICBATCHSIZE] [--disableadaptmovementscale]
 
 Build saved_model, tflite, and tf.js modules from checkpoints and configs.
 
@@ -61,6 +61,8 @@ optional arguments:
                         quantization to apply during tf.js conversions
   --staticbatchsize STATICBATCHSIZE
                         optional static batch size to use
+  --disableadaptmovementscale
+                        build process_kp_driving in a way that will ignore adapt_movement_scale input at inference time
 ```
 
 ## Inference details
@@ -68,7 +70,7 @@ optional arguments:
  * First, the kps and the jacobian for the source image are detected through the kp_detector model.
  * Then, for each batch of driving video frames:
     * kps and jacobians are detected using the kp_detector model.
-    * Processing of the resultant driving video frame kps and jacobians is done using process_kp_driving model (with source image and video kps/jacobians, and boolean parameters *use_relative_motion*, *use_relative_jacobian*, and *adapt_movement_scale* as inputs).
+    * Processing of the resultant driving video frame kps and jacobians is done using process_kp_driving model (with source image and video kps/jacobians, and boolean parameters *use_relative_jacobian*, and *adapt_movement_scale* as inputs).
     * Finally, the generator model is used (with source image, source image kps/jacobian, and the video frame batch's kps/jacobians as inputs) to generate the frame predictions.
  
 For more details, take a look inside animate.py or the generated tensorboard files in ./log (generated when run.py is run with --profile directly or on --target savedmodel).
