@@ -117,9 +117,7 @@ Hack-around to make calling from outside not too ugly (though I guess I can't re
 
 **Can the code be significantly optimized further?**
 
-On CPU, probably not. TensorBoard profiler and TF Lite benchmarking tool both show that almost all of the inference time is spent on conv2d ops for both generator and detector, and the time spent on process_kp_driving is already very short. If you do have any ideas, pull request away! Out of code, all the usual post-training tf lite optimizations can be added to reduce .tflite sizes and to speed up inference. Refer to [TF Lite optimization guide](https://www.tensorflow.org/lite/performance/model_optimization) and to [tensorflow-model-optimization documentation's weight clustering guide](https://www.tensorflow.org/model_optimization/guide/clustering/clustering_example).
-
-On GPU, some parts (GridSample and BilinearInterpolate) seem to be driving the utilization down, which makes the model perform worse than original on low batch sizes. Finding the bottlenecks and replacing them with ops that parallelize better could lead to some gains in performance.
+TensorBoard profiler and TF Lite benchmarking tool both show that almost all of the inference time is spent on conv2d ops for both generator and detector, and the time spent on process_kp_driving is already very short. If you do have any ideas, pull request away! Out of code, all the usual post-training tf lite optimizations can be added to reduce .tflite sizes and to speed up inference. Refer to [TF Lite optimization guide](https://www.tensorflow.org/lite/performance/model_optimization) and to [tensorflow-model-optimization documentation's weight clustering guide](https://www.tensorflow.org/model_optimization/guide/clustering/clustering_example).
 
 **Could I make a single keras model that receives source image and driving video and outputs the predicted video?**
 
@@ -155,7 +153,7 @@ Boy, was making this thing work with the original's checkpoints with tf lite and
  * Reverse-engineer pytorch's checkpoint loader (this wasn't strictly necessary, and earlier I just used torch.load to load the checkpoints, but having torch as a requirement in a tf port of a torch project seemed in bad taste)
  * Some other stuff I barely remember
 
-In the end, it actually turned out a little faster than the original, at least on a CPU. Kudos to me.
+In the end, it actually turned out a little faster than the original. Kudos to me.
 
 ### Attribution
 [first-order-model](https://github.com/AliaksandrSiarohin/first-order-model) by [AliaksandrSiarohin](https://github.com/AliaksandrSiarohin), used under [CC BY-NC](https://creativecommons.org/licenses/by-nc/4.0/) / Ported to TensorFlow
