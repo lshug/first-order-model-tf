@@ -51,10 +51,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
     estimate_jacobian = 'jacobian' in kp_source.keys()
     
     predictions = []
-    
-    if batch_size == 1 and visualizer_params is not None:
-        visualizations = []
-        driving_video_full = driving_video
+    visualizations = []
     
     for i in tqdm(range(math.ceil(l / batch_size))):
         if profile:
@@ -91,7 +88,7 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
                     del out['sparse_deformed']
                 except:
                     pass
-                visualization = Visualizer(**visualizer_params).visualize(source=source_image[0].numpy(), driving=driving_video_full[i].numpy(), out=out)
+                visualization = Visualizer(**visualizer_params).visualize(source=source_image[0].numpy(), driving=driving_video_tensor[0].numpy(), out=out)
                 visualizations.append(visualization)
     
     if profile:
