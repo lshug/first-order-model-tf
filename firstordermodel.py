@@ -978,16 +978,16 @@ class ProcessKpDriving(tf.Module):
         jacobian_number = 1 if single_jacobian_map else self.num_kp
         self.jacobian_number = jacobian_number
         self.static_batch_size = static_batch_size
-        self.n = tf.cast(num_kp, 'int32')
-        self.L = tf.cast(1, 'int32') # I noticed very late that convex_hull_area's only ever called on batch-1 kp tensors. Change this to tf.shape(X)[0]/static_batch_size if you need to reuse with >1 batches.
-        self.j = [tf.repeat(tf.cast(x, 'int32'), self.L) for x in range(num_kp)]
-        self.rng = tf.zeros(1, dtype='int32') # And change this to tf.range(L)
+        self.n = tf.cast(num_kp, 'int32').numpy()
+        self.L = tf.cast(1, 'int32').numpy() # I noticed very late that convex_hull_area's only ever called on batch-1 kp tensors. Change this to tf.shape(X)[0]/static_batch_size if you need to reuse with >1 batches.
+        self.j = [tf.repeat(tf.cast(x, 'int32'), self.L).numpy() for x in range(num_kp)]
+        self.rng = tf.zeros(1, dtype='int32').numpy() # And change this to tf.range(L)
         self.sqrng = self.rng # And this to tf.range(L * L)
         sqrng = self.sqrng
-        left = tf.reshape(sqrng, (self.L.numpy(), self.L.numpy()))
+        left = tf.reshape(sqrng, (self.L, self.L))
         right = tf.transpose(left)
         self.eye = tf.cast((left==right), 'float32').numpy()
-        self.L_ones = tf.ones((self.L, 1))
+        self.L_ones = tf.ones((self.L, 1)).numpy()
         if static_batch_size is not None:
             self.brange = tf.range(static_batch_size)
             self.bsqrange = tf.range(static_batch_size * static_batch_size)
