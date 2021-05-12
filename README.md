@@ -4,13 +4,15 @@ TensorFlow port of first-order motion model. TF Lite and TF.js compatible, suppo
  
 Original PyTorch version can be found at [AliaksandrSiarohin/first-order-model](https://github.com/AliaksandrSiarohin/first-order-model). Copy the checkpoint tars into the checkpoint folder. If you intend to run the fashion-trained model, be sure to rename the checkpoint file for that model from fashion.pth.tar to fashion-cpk.pth.tar (the original filename for that checkpoint doesn't fit into the naming scheme for others for some reason, and that messes up the load process). Run build.py to generate saved_models and tflite files (and tf.js models if tensorflowjs_converter is installed and --tfjs flag is used). After that, you can run inference directly, with saved_models, or with tf lite, using run.py.
 
+A colab for comparing performance and outputs between this implementation and the original is available [here](https://colab.research.google.com/drive/1CHlfG792RifIpwYQqqUNHGS_3rUe16vQ?usp=sharing).
+
 ![example](example/example.gif)
 
 ## run.py and build.py CLI
 ```
 usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--mode {animate,reconstruction}] [--datamode {file,dataset}] [--model MODEL] [--source_image SOURCE_IMAGE]
-              [--driving_video DRIVING_VIDEO] [--output OUTPUT] [--dontappend] [--relative] [--adapt] [--frames FRAMES] [--batchsize BATCH_SIZE] [--exactbatch] [--profile]
-              [--visualizer]
+              [--driving_video DRIVING_VIDEO] [--output OUTPUT] [--dontappend] [--relative] [--adapt] [--frames FRAMES] [--batchsize BATCH_SIZE] [--exactbatch] [--device DEVICE]
+              [--profile] [--visualizer]
 
 Run inference
 
@@ -35,9 +37,9 @@ optional arguments:
   --batchsize BATCH_SIZE
                         batch size
   --exactbatch          force static batch size, tile source image to batch size and discard driving video frames beyond last index divisible by batch size
+  --device DEVICE       device to use
   --profile             enable tensorboard profiling
   --visualizer          enable visualizer, only relevant for dataset datamode
-
 ```
 
 ```
@@ -90,6 +92,10 @@ Input and output names of savedmodel-converted tflite models are based on the na
 **What ops are used in or necessary for the models?**
 
 See [OPS.md](OPS.md) for the list of ops that are necessary for each of the three modules, along with notes about TF Lite delegate compatibility. The list is generated from tflite files, using tflite_ops function in utils.py. Directly built modules and SavedModels use some other ops, but those are fused/converted/erased during tflite conversion and aren't actually necessary for the model's functioning.
+
+**What's with the weird tf.functions at the top of animate.py?**
+
+They're there to prevent numpy-to-tensor conversion from executing eagerly. Without those, data would first be loaded into cpuland and then moved to GPU with \_Send op. That can be costly, especially in a loop.
 
 **What would it take to add training support?**
 

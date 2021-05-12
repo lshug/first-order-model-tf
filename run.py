@@ -1,6 +1,7 @@
 import tensorflow as tf
 import argparse
 import os
+from contextlib import nullcontext
 import yaml
 from tqdm import tqdm
 from animate import animate
@@ -23,10 +24,11 @@ parser.add_argument("--adapt", dest="adapt_movement_scale", action="store_true",
 parser.add_argument("--frames", type=int, default=-1, help="number of frames to process")
 parser.add_argument("--batchsize", dest="batch_size", type=int, default=4, help="batch size")
 parser.add_argument("--exactbatch", dest="exact_batch", action="store_true", help="force static batch size, tile source image to batch size and discard driving video frames beyond last index divisible by batch size")
+parser.add_argument("--device", dest="device", default=None, help="device to use")
 parser.add_argument("--profile", action="store_true", help="enable tensorboard profiling")
 parser.add_argument("--visualizer", action="store_true", help="enable visualizer, only relevant for dataset datamode")
 parser = parser.parse_args()
-device = 'gpu:0' if len(tf.config.list_physical_devices('GPU')) > 0 else 'cpu'
+context = tf.device(parser.device) if parser.device is not None else nullcontext()
 if parser.profile:
     tf.debugging.set_log_device_placement(True)
 
@@ -38,7 +40,7 @@ with open(config_path) as f:
 frame_shape = config['dataset_params']['frame_shape']
 num_channels = config['model_params']['common_params']['num_channels']
 
-with tf.device(device):
+with context:
     kp_detector, process_kp_driving, generator, _interpreter_obj_list = load_funcs[parser.target](parser.model, prediction_only=parser.datamode=='file', static_batch_size = None if not parser.exact_batch else parser.batch_size) 
     format_appends = {'direct':'', 'savedmodel':'.savedmodel', 'tflite':'.tflite'}
 
