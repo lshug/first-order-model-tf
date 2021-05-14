@@ -358,44 +358,65 @@ class BilinearInterpolate(layers.Layer):
         flat_grid = tf.math.maximum(flat_grid, 0)
         grid = tf.reshape(flat_grid, grid_shape)
         grid_int = tf.cast(tf.floor(grid), "int32")
+        grid_float = tf.cast(grid_int, "float32")
+        y = tf.cast(tf.transpose(tf.stack([tf.cast(grid_int[..., 0] < W - 1, "int32"), zeros]), (1, 2, 0)), "int32")
+        x = tf.cast(tf.transpose(tf.stack([zeros, tf.cast(grid_int[..., 1] < H - 1, "int32")]), (1, 2, 0)), "int32")
+        
+        grid00 = grid_int
+        grid01 = grid00 + x
+        grid10 = grid00 + y
+        grid11 = grid00 + y + x        
+        
+        if self.static_batch_size is not None:
+            N = self.static_batch_size
+            batch_range = tf.range(N)
+            g = tf.cast(tf.expand_dims(tf.tile(tf.reshape(batch_range, (-1, 1, 1)), (1, size[0], size[1])), 3), "int32")
+            grid00 = tf.concat([g, tf.tile(tf.reshape(grid00, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
+            grid01 = tf.concat([g, tf.tile(tf.reshape(grid01, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
+            grid10 = tf.concat([g, tf.tile(tf.reshape(grid10, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
+            grid11 = tf.concat([g, tf.tile(tf.reshape(grid11, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
+        
+        self.grid00 = grid00
+        self.grid01 = grid01
+        self.grid10 = grid10
+        self.grid11 = grid11
         self.grid = grid
         self.grid_int = grid_int
+        self.grid_float = grid_float
+        
         super(BilinearInterpolate, self).build(input_shape)
 
     def call(self, img):
         size = self.size
-        if self.static_batch_size is None:
-            N = tf.shape(img)[0]
-            batch_range = tf.range(N)
-        else:
-            N = self.static_batch_size
-            batch_range = self.brange
+        
         H, W = img.shape[1], img.shape[2]
         zeros = self.zeros
         ones = self.ones
         grid = self.grid
-        grid_int = self.grid_int
-
-        y = tf.cast(tf.transpose(tf.stack([tf.cast(grid_int[..., 0] < W - 1, "int32"), zeros]), (1, 2, 0)), "int32")
-        x = tf.cast(tf.transpose(tf.stack([zeros, tf.cast(grid_int[..., 1] < H - 1, "int32")]), (1, 2, 0)), "int32")
-        g = tf.cast(tf.expand_dims(tf.tile(tf.reshape(batch_range, (-1, 1, 1)), (1, size[0], size[1])), 3), "int32")
-
-        grid00 = grid_int
-        grid01 = grid00 + x
-        grid10 = grid00 + y
-        grid11 = grid00 + y + x
-
-        grid00 = tf.concat([g, tf.tile(tf.reshape(grid00, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
-        grid01 = tf.concat([g, tf.tile(tf.reshape(grid01, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
-        grid10 = tf.concat([g, tf.tile(tf.reshape(grid10, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
-        grid11 = tf.concat([g, tf.tile(tf.reshape(grid11, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
+        grid_float = self.grid_float
+        
+        grid00 = self.grid00
+        grid01 = self.grid01
+        grid10 = self.grid10
+        grid11 = self.grid11
+        
+        if self.static_batch_size is None:
+            N = tf.shape(img)[0]
+            batch_range = tf.range(N)
+            g = tf.cast(tf.expand_dims(tf.tile(tf.reshape(batch_range, (-1, 1, 1)), (1, size[0], size[1])), 3), "int32")
+            grid00 = tf.concat([g, tf.tile(tf.reshape(grid00, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
+            grid01 = tf.concat([g, tf.tile(tf.reshape(grid01, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
+            grid10 = tf.concat([g, tf.tile(tf.reshape(grid10, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
+            grid11 = tf.concat([g, tf.tile(tf.reshape(grid11, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
+        else:
+            N = self.static_batch_size
 
         val00 = tf.gather_nd(img, grid00)
         val01 = tf.gather_nd(img, grid01)
         val10 = tf.gather_nd(img, grid10)
         val11 = tf.gather_nd(img, grid11)
 
-        l = tf.tile(tf.reshape(grid, (1, size[0], size[1], 2)), (N, 1, 1, 1)) - tf.cast(grid_int, "float32")
+        l = tf.tile(tf.reshape(grid, (1, size[0], size[1], 2)), (N, 1, 1, 1)) - grid_float
 
         w0 = tf.expand_dims(l[..., 1], 3)
         w1 = 1 - w0
@@ -609,9 +630,10 @@ def dense_motion(
     scale_factor=0.25,
     static_batch_size=None,
 ):
+    
     if scale_factor != 1:
         source = AntiAliasInterpolation2d(num_channels, scale_factor, static_batch_size=1)(source)
-
+    
     h, w = shape
     h = int(h * scale_factor)
     w = int(w * scale_factor)
@@ -822,6 +844,7 @@ def build_generator_base(
     source_kp = layers.Input(shape=(num_kp, 2), dtype="float32", name="kp_source")
     kp_source_jacobian = layers.Input(shape=(jacobian_number, 2, 2), dtype="float32", name="kp_source_jacobian")
 
+    # source_image only
     x = SameBlock2d(inp, block_expansion, name="first")
     for i in range(num_down_blocks):
         x = DownBlock2d(x, min(max_features, block_expansion * (2 ** (i + 1))), name="down_blocks" + str(i))
