@@ -32,16 +32,16 @@ def save_frames_png(path, predictions):
     prediction = (255 * prediction).astype(np.uint8)
     imageio.imwrite(path, prediction)
 
-def load_models_direct(model, prediction_only=False, static_batch_size=None, disable_adapt_movement_scale=False):
+def load_models_direct(model, prediction_only=False, static_batch_size=None, hardcode=None):
     config_path = f"config/{model}-256.yaml"
     with open(config_path) as f:
         config = yaml.load(f, Loader=yaml.Loader)
     frame_shape = config["dataset_params"]["frame_shape"]
     kp_detector = build_kp_detector(f"./checkpoint/{model}-cpk.pth.tar", **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"], 
-                                    static_batch_size=static_batch_size, disable_adapt_movement_scale=disable_adapt_movement_scale)
+                                    static_batch_size=static_batch_size)
     generator = build_generator(f"./checkpoint/{model}-cpk.pth.tar", not prediction_only, **config["dataset_params"], **config["model_params"]["generator_params"], 
                                      **config["model_params"]["common_params"], single_jacobian_map=kp_detector.single_jacobian_map, static_batch_size=static_batch_size)
-    process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"], single_jacobian_map=kp_detector.single_jacobian_map, static_batch_size=static_batch_size)
+    process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"], single_jacobian_map=kp_detector.single_jacobian_map, static_batch_size=static_batch_size, hardcode=hardcode)
     kp_detector, process_kp_driving, generator = tf.function(kp_detector), tf.function(process_kp_driving), tf.function(generator)    
     return kp_detector, process_kp_driving, generator, None
 
