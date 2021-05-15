@@ -310,11 +310,21 @@ class Interpolate(layers.Layer):
         self.grid = tf.reshape(grid, (1, self.y_max, self.x_max, 2))
         if self.static_batch_size is not None:
             N = self.static_batch_size
+            img_shape = (N, *tuple(input_shape[1:-1]))
             batch_range = tf.reshape(tf.range(self.static_batch_size), (-1, 1, 1, 1))
             g = tf.tile(tf.reshape(batch_range, (-1, 1, 1, 1)), (1, y_max, x_max, 1)) # batch_range, batch, y_max, x_max
             grid = tf.tile(grid, (N, 1, 1, 1))
             grid = tf.concat([g, grid], 3)
-            self.static_grid = grid.numpy()
+            
+            img_shape = (N, *tuple(input_shape[1:-1]))
+            self.inp_shape = (*input_shape,)
+            self.final_shape = (*grid.shape[:-1], input_shape[-1])
+            grid = tf.reshape(grid, (-1, 3))
+            s = 0
+            for i in range(3):
+                coef = tf.reduce_prod(img_shape[i+1:]).numpy()
+                s += coef * grid[:, i]                
+            self.static_grid = s.numpy()
         super(Interpolate, self).build(input_shape)
 
     def call(self, img):
@@ -329,9 +339,9 @@ class Interpolate(layers.Layer):
             grid = tf.concat([g, grid], 3)
             out = tf.gather_nd(img, grid)
         else:
-            out = tf.gather_nd(img, self.static_grid)
+            out = tf.reshape(tf.gather(tf.reshape(img, (-1, self.inp_shape[3])), self.static_grid), self.final_shape)
         return out
-
+    
     def compute_output_shape(self, input_shape):
         scale_factor = self.scale_factor
         return input_shape[0], input_shape[1] * scale_factor[0], input_shape[2] * scale_factor[1], input_shape[3]
@@ -385,11 +395,30 @@ class BilinearInterpolate(layers.Layer):
             grid01 = tf.concat([g, tf.tile(tf.reshape(grid01, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
             grid10 = tf.concat([g, tf.tile(tf.reshape(grid10, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
             grid11 = tf.concat([g, tf.tile(tf.reshape(grid11, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
-        
-        self.grid00 = grid00
-        self.grid01 = grid01
-        self.grid10 = grid10
-        self.grid11 = grid11
+            
+            img_shape = (N, *tuple(input_shape[1:-1]))
+            self.inp_shape = (*input_shape,)
+            self.final_shape = (*grid00.shape[:-1], input_shape[-1])
+            grid00 = tf.reshape(grid00, (-1, 3))
+            grid01 = tf.reshape(grid01, (-1, 3))
+            grid10 = tf.reshape(grid10, (-1, 3))
+            grid11 = tf.reshape(grid11, (-1, 3))
+            s00, s01, s10, s11 = 0, 0, 0, 0
+            for i in range(3):
+                coef = tf.reduce_prod(img_shape[i+1:]).numpy()
+                s00 += coef * grid00[:, i]
+                s01 += coef * grid01[:, i]
+                s10 += coef * grid10[:, i]
+                s11 += coef * grid11[:, i]
+            self.s00 = s00
+            self.s01 = s01
+            self.s10 = s10
+            self.s11 = s11
+                    
+        self.grid00 = grid00.numpy()
+        self.grid01 = grid01.numpy()
+        self.grid10 = grid10.numpy()
+        self.grid11 = grid11.numpy()
         self.grid = grid
         self.grid_int = grid_int
         self.grid_float = grid_float
@@ -418,13 +447,16 @@ class BilinearInterpolate(layers.Layer):
             grid01 = tf.concat([g, tf.tile(tf.reshape(grid01, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
             grid10 = tf.concat([g, tf.tile(tf.reshape(grid10, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
             grid11 = tf.concat([g, tf.tile(tf.reshape(grid11, (1, size[0], size[1], 2)), (N, 1, 1, 1))], 3)
+            val00 = tf.gather_nd(img, grid00)
+            val01 = tf.gather_nd(img, grid01)
+            val10 = tf.gather_nd(img, grid10)
+            val11 = tf.gather_nd(img, grid11)
         else:
             N = self.static_batch_size
-
-        val00 = tf.gather_nd(img, grid00)
-        val01 = tf.gather_nd(img, grid01)
-        val10 = tf.gather_nd(img, grid10)
-        val11 = tf.gather_nd(img, grid11)
+            val00 = tf.reshape(tf.gather(tf.reshape(img, (-1, self.inp_shape[3])), self.s00), self.final_shape)
+            val01 = tf.reshape(tf.gather(tf.reshape(img, (-1, self.inp_shape[3])), self.s01), self.final_shape)
+            val10 = tf.reshape(tf.gather(tf.reshape(img, (-1, self.inp_shape[3])), self.s10), self.final_shape)
+            val11 = tf.reshape(tf.gather(tf.reshape(img, (-1, self.inp_shape[3])), self.s11), self.final_shape)
 
         l = tf.tile(tf.reshape(grid, (1, size[0], size[1], 2)), (N, 1, 1, 1)) - grid_float
 
@@ -451,6 +483,15 @@ class GridSample(layers.Layer):
 
     def call(self, data):
         return self._grid_sample(data)
+    
+    def _pseudo_gather_nd(self, img, grid):
+        img_shape, final_shape = self.img_shape, self.final_shape
+        img = tf.reshape(img, (-1, img_shape[-1]))
+        grid = tf.reshape(grid, (-1, len(img_shape) - 1))
+        s = 0
+        for i in range(len(img_shape) - 1):
+            s += self.coefs[i] * grid[:, i]
+        return tf.reshape(tf.gather(img, s), final_shape)
 
     def _grid_sample(self, data):
         img = data[0]
@@ -512,22 +553,34 @@ class GridSample(layers.Layer):
 
         grid_nw = tf.concat([b, y_n, x_w], 3)
         grid_nw = nw_mask * grid_nw
-        nw_val = tf.gather_nd(img, grid_nw)
+        if self.static_batch_size is None:
+            nw_val = tf.gather_nd(img, grid_nw)
+        else:
+            nw_val = self._pseudo_gather_nd(img, grid_nw)
         nw_val = tf.cast(nw_mask, 'float32') * nw_val
 
         grid_ne = tf.concat([b, y_n, x_e], 3)
         grid_ne = ne_mask * grid_ne
-        ne_val = tf.gather_nd(img, grid_ne)
+        if self.static_batch_size is None:
+            ne_val = tf.gather_nd(img, grid_ne)
+        else:
+            ne_val = self._pseudo_gather_nd(img, grid_ne)
         ne_val = tf.cast(ne_mask, 'float32') * ne_val
 
         grid_sw = tf.concat([b, y_s, x_w], 3)
         grid_sw = sw_mask * grid_sw
-        sw_val = tf.gather_nd(img, grid_sw)
+        if self.static_batch_size is None:
+            sw_val = tf.gather_nd(img, grid_sw)
+        else:
+            sw_val = self._pseudo_gather_nd(img, grid_sw)
         sw_val = tf.cast(sw_mask, 'float32') * sw_val
 
         grid_se = tf.concat([b, y_s, x_e], 3)
         grid_se = se_mask * grid_se
-        se_val = tf.gather_nd(img, grid_se)
+        if self.static_batch_size is None:
+            se_val = tf.gather_nd(img, grid_se)
+        else:
+            se_val = self._pseudo_gather_nd(img, grid_se)
         se_val = tf.cast(se_mask, 'float32') * se_val
 
         out = nw * nw_val + sw * sw_val + ne * ne_val + se * se_val
@@ -539,9 +592,15 @@ class GridSample(layers.Layer):
     def build(self, input_shape):
         img_shape = input_shape[0]
         grid_shape = input_shape[1]
+        coefs = []
+        for i in range(len(img_shape) - 1):
+            coefs.append(tf.reduce_prod(img_shape[i+1:-1]).numpy())
         self.i_H, self.i_W = grid_shape[1], grid_shape[2]
         if self.static_batch_size is not None:
             self.brange = tf.tile(tf.reshape(tf.range(self.static_batch_size), (-1,1,1,1)), (1, self.i_H, self.i_W, 1)).numpy()
+            self.coefs = coefs
+            self.img_shape = (*img_shape,)
+            self.final_shape = (self.static_batch_size, *grid_shape[1:-1], img_shape[-1])
         self.H, self.W = tf.cast(grid_shape[1], "float32"), tf.cast(grid_shape[2], "float32")
         self.iH, self.iW = tf.cast(img_shape[1], "int32"), tf.cast(img_shape[2], "int32")
         super(GridSample, self).build(input_shape)

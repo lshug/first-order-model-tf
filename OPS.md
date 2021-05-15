@@ -1,6 +1,6 @@
 # Ops
 
-This file lists the TF Lite ops that are used in the three modules post-conversion assuming static batch size and prediction-only build, along with the notes about the ops' compatiblity with TF Lite's delegates. When TF Lite interpreter is using a delegate and encounters a non-compatible op during runtime, it is forced to switch to CPU, which is quite expensive in terms of performance and memory, so avoiding such ops is preferrable. For this reason, I'm providing small guides to converting certain incompatible ops into series of compatible ops. Unfortunately there are certain ops that are necessary for the model and that cannot realistically be converted in such manner, these being: tensor tiling, gather_nd, batch matrix multiplication, dtype casting, taking a floor, summing, division, square root, logical operations and comparisons on bool tensors, ternary select, tensor transposition, and argmin.
+This file lists the TF Lite ops that are used in the three modules post-conversion assuming static batch size and prediction-only build, along with the notes about the ops' compatiblity with TF Lite's delegates. When TF Lite interpreter is using a delegate and encounters a non-compatible op during runtime, it is forced to switch to CPU, which is quite expensive in terms of performance and memory, so avoiding such ops is preferrable. For this reason, I'm providing small guides to converting certain incompatible ops into series of compatible ops.
 
 It should be noted that only non-static uses of non-compatible ops need to be converted. For example, using non-compatible ops to generate tensors in keras layers' build functions should be fine. An example of this is the use of ```make_coordinate_grid```, which uses casts and tiling, in some custom layers' build functions.
 
@@ -12,6 +12,7 @@ It should be noted that only non-static uses of non-compatible ops need to be co
  * @: would need CAST to be convertible
  * #: would need SQRT to be convertible
  * %: would need DIV to be convertible
+ * !: not required when disableadaptmovementscale is used at build time
  * [n]: explanations of how the replacement can be done
     * [1]: can be replaced by an equivalent reshape
     * [2]: expand shape with reshape, pack with concatenate
@@ -27,7 +28,7 @@ It should be noted that only non-static uses of non-compatible ops need to be co
 
  * TILE -
  * AVERAGE_POOL_2D
- * GATHER_ND -
+ * GATHER -
  * MUL
  * CONV_2D
  * RESHAPE
@@ -40,7 +41,7 @@ It should be noted that only non-static uses of non-compatible ops need to be co
  
 ## generator
 
- * GATHER_ND -
+ * GATHER -
  * CONV_2D
  * EXP ~
  * DIV -
@@ -48,19 +49,16 @@ It should be noted that only non-static uses of non-compatible ops need to be co
  * AVERAGE_POOL_2D
  * MUL
  * RESHAPE
- * SQUARE - * [5]
  * SUM -
  * SOFTMAX
  * LESS -
  * CAST - @
  * SUB 
- * SELECT_V2 - @ # [6]
  * GREATER -
  * PAD
  * FLOOR - @ [7]
  * TILE -
  * ADD
- * LOGICAL_AND - @ [9]
  * PACK - * [2]
  * TRANSPOSE -
  * CONCATENATION
@@ -69,32 +67,24 @@ It should be noted that only non-static uses of non-compatible ops need to be co
 
 ## process_kp_driving
 
- * GATHER_ND -
- * ARG_MIN -
- * SQRT -
+ * GATHER - !
+ * ARG_MIN - !
+ * SQRT - !
  * DIV -
  * MUL
  * RESHAPE
  * RSQRT - # %
- * FLOOR_MOD - @ % [8]
- * LESS -
- * CAST - @
+ * FLOOR_MOD - @ % ! [8]
+ * LESS - !
+ * CAST - @ !
  * SUB
- * SELECT_V2 - @ # [6]
- * GREATER -
- * TILE -
+ * SELECT_V2 - @ # ! [6]
+ * GREATER ! -
+ * TILE ! -
  * ADD
- * SELECT - # @ [6]
- * LOGICAL_AND - @ [9]
+ * SELECT - # @ ! [6]
+ * LOGICAL_AND - @ ! [9]
  * FULLY_CONNECTED
- * PACK - * [2]
+ * PACK - * ! [2]
  * CONCATENATION
  * STRIDED_SLICE
-
-## Arithmetic tf.where
-
-If casting and square root were allowed, ```tf.where(conditional_bool, leftarg, rightarg)``` could be converted as follows (in pseudocode):
-
- * Let ```cond1 := tf.cast(conditional_bool, leftarg.dtype)```
- * Let ```cond2 := tf.sqrt((cond1 - tf.cast(1, cond1.dtype)) * (cond1 - tf.cast(1, rightarg.dtype)))``` (arithmetic NOT of cond1)
- * ```out=cond1 * leftarg + cond2 * rightarg```
