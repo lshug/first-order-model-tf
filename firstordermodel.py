@@ -491,7 +491,7 @@ class GridSample(layers.Layer):
         s = 0
         for i in range(len(img_shape) - 1):
             s += self.coefs[i] * grid[:, i]
-        return tf.reshape(tf.gather(img, s), final_shape)
+        return tf.reshape(tf.gather(img, tf.cast(s, 'int32')), final_shape)
 
     def _grid_sample(self, data):
         img = data[0]
@@ -523,17 +523,12 @@ class GridSample(layers.Layer):
         ne = s * w
         sw = n * e
         se = n * w
-
-        x_w = tf.cast(x_w, "int32")
-        y_n = tf.cast(y_n, "int32")
-        x_e = tf.cast(x_e, "int32")
-        y_s = tf.cast(y_s, "int32")
                 
         # forward
-        w_mask = tf.cast((x_w > -1), 'int32') * tf.cast((x_w < self.i_W), 'int32')
-        n_mask = tf.cast((y_n > -1), 'int32') * tf.cast((y_n < self.i_H), 'int32')
-        e_mask = tf.cast((x_e > -1), 'int32') * tf.cast((x_e < self.i_W), 'int32')
-        s_mask = tf.cast((y_s > -1), 'int32') * tf.cast((y_s < self.i_H), 'int32')
+        w_mask = tf.cast((x_w > -1.0), 'float32') * tf.cast((x_w < float(self.i_W)), 'float32')
+        n_mask = tf.cast((y_n > -1.0), 'float32') * tf.cast((y_n < float(self.i_H)), 'float32')
+        e_mask = tf.cast((x_e > -1.0), 'float32') * tf.cast((x_e < float(self.i_W)), 'float32')
+        s_mask = tf.cast((y_s > -1.0), 'float32') * tf.cast((y_s < float(self.i_H)), 'float32')
         
         nw_mask = w_mask * n_mask
         ne_mask = e_mask * n_mask
@@ -543,10 +538,9 @@ class GridSample(layers.Layer):
         # loop
         if self.static_batch_size is None:
             N = tf.shape(x)[0]
-            b = tf.range(N)
+            b = tf.range(N, dtype='float32')
             b = tf.reshape(b, (-1, 1, 1, 1))
-            b = tf.tile(b, (1, H, W, 1))
-            b = tf.cast(b, "int32")
+            b = tf.tile(b, (1, H, W, 1))         
         else:
             b = self.brange
         
@@ -554,34 +548,34 @@ class GridSample(layers.Layer):
         grid_nw = tf.concat([b, y_n, x_w], 3)
         grid_nw = nw_mask * grid_nw
         if self.static_batch_size is None:
-            nw_val = tf.gather_nd(img, grid_nw)
+            nw_val = tf.gather_nd(img, tf.cast(grid_nw, 'int32'))
         else:
             nw_val = self._pseudo_gather_nd(img, grid_nw)
-        nw_val = tf.cast(nw_mask, 'float32') * nw_val
+        nw_val = nw_mask * nw_val
 
         grid_ne = tf.concat([b, y_n, x_e], 3)
         grid_ne = ne_mask * grid_ne
         if self.static_batch_size is None:
-            ne_val = tf.gather_nd(img, grid_ne)
+            ne_val = tf.gather_nd(img, tf.cast(grid_ne, 'int32'))
         else:
             ne_val = self._pseudo_gather_nd(img, grid_ne)
-        ne_val = tf.cast(ne_mask, 'float32') * ne_val
+        ne_val = ne_mask * ne_val
 
         grid_sw = tf.concat([b, y_s, x_w], 3)
         grid_sw = sw_mask * grid_sw
         if self.static_batch_size is None:
-            sw_val = tf.gather_nd(img, grid_sw)
+            sw_val = tf.gather_nd(img, tf.cast(grid_sw, 'int32'))
         else:
             sw_val = self._pseudo_gather_nd(img, grid_sw)
-        sw_val = tf.cast(sw_mask, 'float32') * sw_val
+        sw_val = sw_mask * sw_val
 
         grid_se = tf.concat([b, y_s, x_e], 3)
         grid_se = se_mask * grid_se
         if self.static_batch_size is None:
-            se_val = tf.gather_nd(img, grid_se)
+            se_val = tf.gather_nd(img, tf.cast(grid_se, 'int32'))
         else:
             se_val = self._pseudo_gather_nd(img, grid_se)
-        se_val = tf.cast(se_mask, 'float32') * se_val
+        se_val = se_mask * se_val
 
         out = nw * nw_val + sw * sw_val + ne * ne_val + se * se_val
         return out
@@ -594,10 +588,10 @@ class GridSample(layers.Layer):
         grid_shape = input_shape[1]
         coefs = []
         for i in range(len(img_shape) - 1):
-            coefs.append(tf.reduce_prod(img_shape[i+1:-1]).numpy())
+            coefs.append(float(tf.reduce_prod(img_shape[i+1:-1]).numpy()))
         self.i_H, self.i_W = grid_shape[1], grid_shape[2]
         if self.static_batch_size is not None:
-            self.brange = tf.tile(tf.reshape(tf.range(self.static_batch_size), (-1,1,1,1)), (1, self.i_H, self.i_W, 1)).numpy()
+            self.brange = tf.cast(tf.tile(tf.reshape(tf.range(self.static_batch_size), (-1,1,1,1)), (1, self.i_H, self.i_W, 1)), 'float32').numpy()
             self.coefs = coefs
             self.img_shape = (*img_shape,)
             self.final_shape = (self.static_batch_size, *grid_shape[1:-1], img_shape[-1])
