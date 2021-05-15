@@ -8,7 +8,7 @@ from tqdm import tqdm
 
 js_command_base = "tensorflowjs_converter --control_flow_v2=True --input_format=tf_saved_model --metadata= --saved_model_tags=serve --signature_name=serving_default --strip_debug_ops=True --weight_shard_size_bytes=4194304 saved_models/{0}/{1} js/{0}/{1}"
 
-def build(checkpoint_path, config_path, output_name, module, prediction_only, disable_adapt_movement_scale, tfjs, jsquantize, static_batch_size, nolite):
+def build(checkpoint_path, config_path, output_name, module, prediction_only, hardcode, tfjs, jsquantize, static_batch_size, nolite):
     js_command = js_command_base
     if jsquantize != 'none':
         js_command = js_command_base.replace('--metadata= ', '--metadata= --quantize_'+jsquantize+'=* ')
@@ -59,7 +59,7 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, di
 
     if module == 'process_kp_driving' or module=='all':
         process_kp_driving = build_process_kp_driving(**config["model_params"]["common_params"], 
-                                                      single_jacobian_map=single_jacobian_map, static_batch_size=static_batch_size, disable_adapt_movement_scale=disable_adapt_movement_scale)
+                                                      single_jacobian_map=single_jacobian_map, static_batch_size=static_batch_size, hardcode=hardcode)
         print(f"{output_name} - process_kp_driving")
         tf.saved_model.save(process_kp_driving, "saved_models/" + output_name + "/process_kp_driving", process_kp_driving.__call__.get_concrete_function())
         if not nolite:
@@ -81,8 +81,8 @@ parser.add_argument('--tfjs', action='store_true', help="build tf.js models, req
 parser.add_argument('--jsquantize', choices=['none', 'float16', 'uint16', 'uint8'], default='float16',
                     help="quantization to apply during tf.js conversions")
 parser.add_argument('--staticbatchsize', action='store', type=int, default=None, help="optional static batch size to use")
-parser.add_argument('--disableadaptmovementscale', dest='disable_adapt_movement_scale', action='store_true',
-                    help="build process_kp_driving in a way that will ignore adapt_movement_scale input at inference time")
+parser.add_argument('--hardcode', default=None, choices=['00', '01', '10', '11'],
+                    help="optionally hardcode values for use_relative_jacobian and adapt_movement_scale at build type")
 parser = parser.parse_args()
 
 print("Building")
@@ -91,13 +91,13 @@ if not parser.a:
     checkpoint_path = f"checkpoint/{parser.model}-cpk.pth.tar"
     config_path = f"config/{parser.model}-256.yaml"
     output_name = config_path.split("/")[-1].split("256")[0][:-1]
-    build(checkpoint_path, config_path, output_name, parser.module, parser.predictiononly, parser.disable_adapt_movement_scale, parser.tfjs, parser.jsquantize, parser.staticbatchsize, parser.nolite)
+    build(checkpoint_path, config_path, output_name, parser.module, parser.predictiononly, parser.hardcode, parser.tfjs, parser.jsquantize, parser.staticbatchsize, parser.nolite)
 else:
     configs = os.listdir("config/")
     checkpoints = ["checkpoint/" + x.split("256")[0] + "cpk.pth.tar" for x in configs]
     output_names = [x.split("/")[-1].split("256")[0][:-1] for x in configs]
     configs = ["config/" + x for x in configs]
     for i, config in enumerate(tqdm(configs)):
-        build(checkpoints[i], config, output_names[i], parser.module, parser.predictiononly, parser.disable_adapt_movement_scale, parser.tfjs, parser.jsquantize, parser.staticbatchsize, parser.nolite)
+        build(checkpoints[i], config, output_names[i], parser.module, parser.predictiononly, parser.hardcode, parser.tfjs, parser.jsquantize, parser.staticbatchsize, parser.nolite)
 
 print("Done.")

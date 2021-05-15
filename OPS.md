@@ -1,6 +1,6 @@
 # Ops
 
-This file lists the TF Lite ops that are used in the three modules post-conversion assuming static batch size and prediction-only build, along with the notes about the ops' compatiblity with TF Lite's delegates. When TF Lite interpreter is using a delegate and encounters a non-compatible op during runtime, it is forced to switch to CPU, which is quite expensive in terms of performance and memory, so avoiding such ops is preferrable. For this reason, I'm providing small guides to converting certain incompatible ops into series of compatible ops.
+This file lists the TF Lite ops that are used in the three modules post-conversion assuming static batch size, prediction-only build with process_kp_driving hardcoded with 11, along with the notes about the ops' compatiblity with TF Lite's delegates. When TF Lite interpreter is using a delegate and encounters a non-compatible op during runtime, it is forced to switch to CPU, which is quite expensive in terms of performance and memory, so avoiding such ops is preferrable. For this reason, I'm providing small guides to converting certain incompatible ops into series of compatible ops.
 
 It should be noted that only non-static uses of non-compatible ops need to be converted. For example, using non-compatible ops to generate tensors in keras layers' build functions should be fine. An example of this is the use of ```make_coordinate_grid```, which uses casts and tiling, in some custom layers' build functions.
 
@@ -12,7 +12,7 @@ It should be noted that only non-static uses of non-compatible ops need to be co
  * @: would need CAST to be convertible
  * #: would need SQRT to be convertible
  * %: would need DIV to be convertible
- * !: not required when disableadaptmovementscale is used at build time
+ * !: not required when hardcoding with 10
  * [n]: explanations of how the replacement can be done
     * [1]: can be replaced by an equivalent reshape
     * [2]: expand shape with reshape, pack with concatenate
@@ -76,7 +76,6 @@ It should be noted that only non-static uses of non-compatible ops need to be co
  * RSQRT - # %
  * FLOOR_MOD - @ % ! [8]
  * LESS - !
- * CAST - @ !
  * SUB
  * SELECT_V2 - @ # ! [6]
  * GREATER ! -

@@ -11,8 +11,8 @@ A colab for comparing performance and outputs between this implementation and th
 ## run.py and build.py CLI
 ```
 usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--mode {animate,reconstruction}] [--datamode {file,dataset}] [--model MODEL] [--source_image SOURCE_IMAGE]
-              [--driving_video DRIVING_VIDEO] [--output OUTPUT] [--dontappend] [--relative] [--adapt] [--frames FRAMES] [--batchsize BATCH_SIZE] [--exactbatch] [--device DEVICE]
-              [--profile] [--visualizer]
+              [--driving_video DRIVING_VIDEO] [--output OUTPUT] [--dontappend] [--relative] [--adapt] [--frames FRAMES] [--batchsize BATCH_SIZE] [--exactbatch]
+              [--device DEVICE] [--profile] [--visualizer]
 
 Run inference
 
@@ -36,15 +36,15 @@ optional arguments:
   --frames FRAMES       number of frames to process
   --batchsize BATCH_SIZE
                         batch size
-  --exactbatch          force static batch size, tile source image to batch size and discard driving video frames beyond last index divisible by batch size
+  --exactbatch          force static batch size, tile source image to batch size
   --device DEVICE       device to use
   --profile             enable tensorboard profiling
   --visualizer          enable visualizer, only relevant for dataset datamode
 ```
 
 ```
-usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--nolite] [--predictiononly] [--tfjs] [--jsquantize {none,float16,uint16,uint8}]
-                [--staticbatchsize STATICBATCHSIZE] [--disableadaptmovementscale]
+usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--nolite] [--predictiononly] [--tfjs]
+                [--jsquantize {none,float16,uint16,uint8}] [--staticbatchsize STATICBATCHSIZE] [--hardcode {00,01,10,11}]
 
 Build saved_model, tflite, and tf.js modules from checkpoints and configs.
 
@@ -61,8 +61,8 @@ optional arguments:
                         quantization to apply during tf.js conversions
   --staticbatchsize STATICBATCHSIZE
                         optional static batch size to use
-  --disableadaptmovementscale
-                        build process_kp_driving in a way that will ignore adapt_movement_scale input at inference time
+  --hardcode {00,01,10,11}
+                        optionally hardcode values for use_relative_jacobian and adapt_movement_scale at build type
 ```
 
 ## Inference details
