@@ -134,9 +134,15 @@ class SparseMotion(layers.Layer):
         d = x[:, :, 1, 1]
         dets = a * d - b * c
         dets = tf.reshape(dets, (-1, num_kp, 1, 1))
-        row1 = tf.stack([d, (-1 * c)], 2)
-        row2 = tf.stack([(-1 * b), a], 2)
-        m = tf.stack([row1, row2], 3)
+        d = tf.reshape(d, (-1, num_kp, 1))
+        c = tf.reshape(c, (-1, num_kp, 1))
+        b = tf.reshape(b, (-1, num_kp, 1))
+        a = tf.reshape(a, (-1, num_kp, 1))
+        row1 = tf.concat([d, (-1 * c)], 2)
+        row2 = tf.concat([(-1 * b), a], 2)
+        row1 = tf.reshape(row1, (-1, num_kp, 2, 1))
+        row2 = tf.reshape(row2, (-1, num_kp, 2, 1))
+        m = tf.concat([row1, row2], 3)        
         return m / dets
 
     def call(self, x):
@@ -242,9 +248,10 @@ class Deform(layers.Layer):
 
 
 class KpToGaussian(layers.Layer):
-    def __init__(self, spatial_size, num_kp, **kwargs):
+    def __init__(self, spatial_size, num_kp, static_batch_size=None, **kwargs):
         self.spatial_size = spatial_size
         self.num_kp = num_kp
+        self.static_batch_size = static_batch_size
         super(KpToGaussian, self).__init__(**kwargs)
 
     def call(self, x):
@@ -254,7 +261,10 @@ class KpToGaussian(layers.Layer):
         mean = tf.reshape(mean, (-1, self.num_kp, 1, 1, 2))  # B 10 1 1 2
         mean_sub = grid - mean
         mean_sub = self.reshape(mean_sub)
-        mean_sub = tf.square(mean_sub)
+        if self.static_batch_size is None:
+            mean_sub = tf.square(mean_sub)
+        else:
+            mean_sub = mean_sub * mean_sub
         mean_sub = tf.reshape(mean_sub, (-1, self.num_kp, self.spatial_size[0], self.spatial_size[1], 2))
         out = tf.math.exp(-0.5 * tf.reduce_sum(mean_sub, -1) / kp_variance)
         return out
@@ -477,17 +487,17 @@ class GridSample(layers.Layer):
         y_n = tf.cast(y_n, "int32")
         x_e = tf.cast(x_e, "int32")
         y_s = tf.cast(y_s, "int32")
-
+                
         # forward
-        w_mask = (x_w > -1) & (x_w < self.i_W)
-        n_mask = (y_n > -1) & (y_n < self.i_H)
-        e_mask = (x_e > -1) & (x_e < self.i_W)
-        s_mask = (y_s > -1) & (y_s < self.i_H)
+        w_mask = tf.cast((x_w > -1), 'int32') * tf.cast((x_w < self.i_W), 'int32')
+        n_mask = tf.cast((y_n > -1), 'int32') * tf.cast((y_n < self.i_H), 'int32')
+        e_mask = tf.cast((x_e > -1), 'int32') * tf.cast((x_e < self.i_W), 'int32')
+        s_mask = tf.cast((y_s > -1), 'int32') * tf.cast((y_s < self.i_H), 'int32')
         
-        nw_mask = tf.cast((w_mask & n_mask), 'int32')
-        ne_mask = tf.cast((e_mask & n_mask), 'int32')
-        sw_mask = tf.cast((s_mask & w_mask), 'int32')
-        se_mask = tf.cast((e_mask & s_mask), 'int32')
+        nw_mask = w_mask * n_mask
+        ne_mask = e_mask * n_mask
+        sw_mask = s_mask * w_mask
+        se_mask = e_mask * s_mask
 
         # loop
         if self.static_batch_size is None:
@@ -603,8 +613,8 @@ def ResBlock2d(x, out_features, kernel_size=(3, 3), name=""):
 
 
 def create_heatmap_representation(kp_driving, kp_source, h, w, num_kp, static_batch_size=None):
-    gaussian_driving = KpToGaussian((h, w), num_kp)(kp_driving)
-    gaussian_source = KpToGaussian((h, w), num_kp)(kp_source)
+    gaussian_driving = KpToGaussian((h, w), num_kp, static_batch_size=static_batch_size)(kp_driving)
+    gaussian_source = KpToGaussian((h, w), num_kp, static_batch_size=static_batch_size)(kp_source)
     if static_batch_size is None:
         gaussian_source = layers.Lambda(lambda l: tf.tile(l[0], (tf.shape(l[1])[0], 1, 1, 1)))([gaussian_source, gaussian_driving])
     else:
@@ -630,10 +640,9 @@ def dense_motion(
     scale_factor=0.25,
     static_batch_size=None,
 ):
-    
     if scale_factor != 1:
         source = AntiAliasInterpolation2d(num_channels, scale_factor, static_batch_size=1)(source)
-    
+
     h, w = shape
     h = int(h * scale_factor)
     w = int(w * scale_factor)
@@ -1083,7 +1092,8 @@ class ProcessKpDriving(tf.Module):
             for i in range(self.jacobian_number):
                 res.append(tf.tensordot(jacobian_diff[:, i:i+1, :, :], kp_source_jacobian[i], 1)) # b 1 2 2
             kp_new_jacobian = tf.concat(res, 1)
-        kp_new_jacobian = tf.where(use_relative_jacobian, kp_new_jacobian, kp_driving_jacobian)
+        use_relative_jacobian = tf.cast(use_relative_jacobian, 'float32')
+        kp_new_jacobian = use_relative_jacobian * kp_new_jacobian + (1.0 - use_relative_jacobian) * kp_driving_jacobian
         return kp_new_jacobian
     
     @tf.function
@@ -1127,9 +1137,15 @@ class ProcessKpDriving(tf.Module):
         d = x[:, :, 1, 1]
         dets = a * d - b * c
         dets = tf.reshape(dets, (-1, num_kp, 1, 1))
-        row1 = tf.stack([d, (-1 * c)], 2)
-        row2 = tf.stack([(-1 * b), a], 2)
-        m = tf.stack([row1, row2], 3)
+        d = tf.reshape(d, (-1, num_kp, 1))
+        c = tf.reshape(c, (-1, num_kp, 1))
+        b = tf.reshape(b, (-1, num_kp, 1))
+        a = tf.reshape(a, (-1, num_kp, 1))
+        row1 = tf.concat([d, (-1 * c)], 2)
+        row2 = tf.concat([(-1 * b), a], 2)
+        row1 = tf.reshape(row1, (-1, num_kp, 2, 1))
+        row2 = tf.reshape(row2, (-1, num_kp, 2, 1))
+        m = tf.concat([row1, row2], 3)        
         return m / dets
 
 
