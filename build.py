@@ -8,10 +8,10 @@ from tqdm import tqdm
 
 js_command_base = "tensorflowjs_converter --control_flow_v2=True --input_format=tf_saved_model --metadata= --saved_model_tags=serve --signature_name=serving_default --strip_debug_ops=True --weight_shard_size_bytes=4194304 saved_models/{0}/{1} js/{0}/{1}"
 
-def build(checkpoint_path, config_path, output_name, module, prediction_only, hardcode, tfjs, jsquantize, static_batch_size, nolite):
+def build(checkpoint_path, config_path, output_name, module, prediction_only, hardcode, tfjs, static_batch_size, nolite, float16):
     js_command = js_command_base
-    if jsquantize != 'none':
-        js_command = js_command_base.replace('--metadata= ', '--metadata= --quantize_'+jsquantize+'=* ')
+    if float:
+        js_command = js_command_base.replace('--metadata= ', '--metadata= --quantize_float16=* ')
         
     if not os.path.isdir("tflite/" + output_name):
         os.mkdir("tflite/" + output_name)
@@ -37,7 +37,9 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, ha
         tf.saved_model.save(kp_detector, "saved_models/" + output_name + "/kp_detector", kp_detector.__call__.get_concrete_function())
         if not nolite:
             kp_detector_converter = tf.lite.TFLiteConverter.from_saved_model("saved_models/" + output_name + "/kp_detector")
-            kp_detector_converter.experimental_new_converter = True
+            if float16:
+                kp_detector_converter.optimizations = [tf.lite.Optimize.DEFAULT]
+                kp_detector_converter.target_spec.supported_types = [tf.float16]
             kp_detector_tflite = kp_detector_converter.convert()
             open("tflite/" + output_name + "/kp_detector.tflite", "wb").write(kp_detector_tflite)
         if tfjs:
@@ -50,7 +52,9 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, ha
         tf.saved_model.save(generator, "saved_models/" + output_name + "/generator", signatures=generator.__call__.get_concrete_function())
         if not nolite:
             generator_converter = tf.lite.TFLiteConverter.from_saved_model("saved_models/" + output_name + "/generator")
-            generator_converter.experimental_new_converter = True
+            if float16:
+                generator_converter.optimizations = [tf.lite.Optimize.DEFAULT]
+                generator_converter.target_spec.supported_types = [tf.float16]
             generator_tflite = generator_converter.convert()
             open("tflite/" + output_name + "/generator.tflite", "wb").write(generator_tflite)
         if tfjs:
@@ -64,7 +68,9 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, ha
         tf.saved_model.save(process_kp_driving, "saved_models/" + output_name + "/process_kp_driving", process_kp_driving.__call__.get_concrete_function())
         if not nolite:
             process_kp_driving_converter = tf.lite.TFLiteConverter.from_saved_model("saved_models/" + output_name + "/process_kp_driving")
-            process_kp_driving_converter.experimental_new_converter = True
+            if float16:
+                process_kp_driving_converter.optimizations = [tf.lite.Optimize.DEFAULT]
+                process_kp_driving_converter.target_spec.supported_types = [tf.float16]
             process_kp_driving_tflite = process_kp_driving_converter.convert()
             open("tflite/" + output_name + "/process_kp_driving.tflite", "wb").write(process_kp_driving_tflite)
         if tfjs:
@@ -77,9 +83,8 @@ parser.add_argument("-a", action="store_true", help="build models for all config
 parser.add_argument('--module', choices=['all', 'kp_detector', 'generator', 'process_kp_driving'], default='all', help="module to build")
 parser.add_argument('--nolite', action='store_true', help="don't build tflite modules")
 parser.add_argument('--predictiononly', action="store_true", help="build the generator so that it only outputs predictions")
+parser.add_argument('--float16', action="store_true", help="quantize lite to float16")
 parser.add_argument('--tfjs', action='store_true', help="build tf.js models, requires tensorflowjs_converter")
-parser.add_argument('--jsquantize', choices=['none', 'float16', 'uint16', 'uint8'], default='float16',
-                    help="quantization to apply during tf.js conversions")
 parser.add_argument('--staticbatchsize', action='store', type=int, default=None, help="optional static batch size to use")
 parser.add_argument('--hardcode', default=None, choices=['00', '01', '10', '11'],
                     help="optionally hardcode values for use_relative_jacobian and adapt_movement_scale at build type")
@@ -91,13 +96,13 @@ if not parser.a:
     checkpoint_path = f"checkpoint/{parser.model}-cpk.pth.tar"
     config_path = f"config/{parser.model}-256.yaml"
     output_name = config_path.split("/")[-1].split("256")[0][:-1]
-    build(checkpoint_path, config_path, output_name, parser.module, parser.predictiononly, parser.hardcode, parser.tfjs, parser.jsquantize, parser.staticbatchsize, parser.nolite)
+    build(checkpoint_path, config_path, output_name, parser.module, parser.predictiononly, parser.hardcode, parser.tfjs, parser.staticbatchsize, parser.nolite, parser.float16)
 else:
     configs = os.listdir("config/")
     checkpoints = ["checkpoint/" + x.split("256")[0] + "cpk.pth.tar" for x in configs]
     output_names = [x.split("/")[-1].split("256")[0][:-1] for x in configs]
     configs = ["config/" + x for x in configs]
     for i, config in enumerate(tqdm(configs)):
-        build(checkpoints[i], config, output_names[i], parser.module, parser.predictiononly, parser.hardcode, parser.tfjs, parser.jsquantize, parser.staticbatchsize, parser.nolite)
+        build(checkpoints[i], config, output_names[i], parser.module, parser.predictiononly, parser.hardcode, parser.tfjs, parser.staticbatchsize, parser.nolite, parser.float16)
 
 print("Done.")

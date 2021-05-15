@@ -43,8 +43,8 @@ optional arguments:
 ```
 
 ```
-usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--nolite] [--predictiononly] [--tfjs]
-                [--jsquantize {none,float16,uint16,uint8}] [--staticbatchsize STATICBATCHSIZE] [--hardcode {00,01,10,11}]
+usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--nolite] [--predictiononly] [--float16] [--tfjs]
+                [--staticbatchsize STATICBATCHSIZE] [--hardcode {00,01,10,11}]
 
 Build saved_model, tflite, and tf.js modules from checkpoints and configs.
 
@@ -56,9 +56,8 @@ optional arguments:
                         module to build
   --nolite              don't build tflite modules
   --predictiononly      build the generator so that it only outputs predictions
+  --float16             quantize lite to float16
   --tfjs                build tf.js models, requires tensorflowjs_converter
-  --jsquantize {none,float16,uint16,uint8}
-                        quantization to apply during tf.js conversions
   --staticbatchsize STATICBATCHSIZE
                         optional static batch size to use
   --hardcode {00,01,10,11}
