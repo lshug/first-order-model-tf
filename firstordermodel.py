@@ -53,7 +53,7 @@ class AntiAliasInterpolation2d(layers.Layer):
         outputs = [0] * self.groups
         for i in range(self.groups):
             k = self.ks[i]
-            im = tf.reshape(out[:,:,:,i], (-1, out.shape[1], out.shape[2], 1))
+            im = tf.reshape(out[:,:,:,i:i+1], (-1, out.shape[1], out.shape[2], 1))
             outputs[i] = tf.nn.conv2d(im, k, strides=(1, 1, 1, 1), padding="VALID")
         out = tf.concat(outputs, 3)
         out = self.interpolate(out)
@@ -94,12 +94,12 @@ class GaussianToKpTail(layers.Layer):
         out = keras.activations.softmax(out / self.temperature, axis=1)
         heatmap = tf.reshape(out, (-1, self.spatial_size[0], self.spatial_size[1], self.num_kp))
         heatmap2 = tf.transpose(heatmap, (0, 3, 1, 2))
-        heatmap2 = tf.expand_dims(heatmap2, 4)
-        heatmap2 = tf.tile(heatmap2, (1, 1, 1, 1, 2))
+        heatmap2 = tf.reshape(heatmap2, (-1, self.num_kp, self.spatial_size[0] * self.spatial_size[1], 1))
+        heatmap2 = tf.tile(heatmap2, (1, 1, 1, 2))
         heatmap2 = tf.reshape(heatmap2, (-1, self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2))
         mult = heatmap2 * self.grid
-        mult = tf.reshape(mult, (-1, self.num_kp, self.spatial_size[0], self.spatial_size[1], 2))
-        value = tf.reduce_sum(mult, (2, 3))
+        mult = tf.reshape(mult, (-1, self.num_kp, self.spatial_size[0] * self.spatial_size[1], 2))
+        value = tf.reduce_sum(mult, 2)
         return value, heatmap
 
     def build(self, input_shape):
@@ -128,10 +128,10 @@ class SparseMotion(layers.Layer):
     
     def batch_batch_four_by_four_inv(self, x):
         num_kp = self.num_kp
-        a = x[:, :, 0, 0]
-        b = x[:, :, 0, 1]
-        c = x[:, :, 1, 0]
-        d = x[:, :, 1, 1]
+        a = x[:, :, 0:1, 0:1]
+        b = x[:, :, 0:1, 1:2]
+        c = x[:, :, 1:2, 0:1]
+        d = x[:, :, 1:2, 1:2]
         dets = a * d - b * c
         dets = tf.reshape(dets, (-1, num_kp, 1, 1))
         d = tf.reshape(d, (-1, num_kp, 1))
@@ -152,11 +152,10 @@ class SparseMotion(layers.Layer):
         else:
             bs = self.static_batch_size
         h, w = self.spatial_size
-        identity_grid = self.grid  # hw2
-
-        coordinate_grid = identity_grid[None][None] - tf.reshape(kp_driving, (-1, self.num_kp, 1, 1, 2))
-        identity_grid = identity_grid + tf.zeros_like(tf.reduce_sum(coordinate_grid, 1))  # bhw2
-        identity_grid = tf.reshape(identity_grid, (-1, 1, h, w, 2))
+        identity_grid = self.grid  # h*w 2
+        coordinate_grid = identity_grid - tf.reshape(kp_driving, (-1, self.num_kp, 1, 2)) # b kp h*w 2
+        identity_grid = identity_grid + tf.zeros_like(tf.reduce_sum(coordinate_grid, 1))  # b h*w 2
+        identity_grid = tf.reshape(identity_grid, (-1, 1, h * w, 2))
 
         # adjust coordinate grid with jacobians
         if self.estimate_jacobian:
@@ -169,12 +168,12 @@ class SparseMotion(layers.Layer):
                 jacobian = tf.tile(jacobian, (1, self.jacobian_tile, 1, 1))
                 reshaped_jacobian = tf.reshape(jacobian, (-1, 2, 2))
                 reshaped_grid = tf.transpose(tf.reshape(coordinate_grid, (-1, h * w, 2, 1)), (1,0,2,3))
-                coordinate_grid = tf.reshape(tf.transpose((reshaped_jacobian @ reshaped_grid),(1,0,2,3)), (-1, self.num_kp, h, w, 2))
+                coordinate_grid = tf.reshape(tf.transpose((reshaped_jacobian @ reshaped_grid),(1,0,2,3)), (-1, self.num_kp, h * w, 2)) # b*kp h w 2
             else:
                 right, left = tf.transpose(left, (0,2,1)), tf.transpose(right, (0,1,3,2))                
                 res = []
                 for i in range(jacobian_number):
-                    res.append(tf.tensordot(left[:, i:i+1, :, :], right[i], 1)) # b 1 2 2
+                    res.append(tf.tensordot(left[:, i:i+1, :, :], tf.reshape(right[None][:, i:i+1], (2, 2)), 1)) # b 1 2 2
                 jacobian_inter = tf.concat(res, 1)                
                 jacobian = tf.transpose(jacobian_inter, (0,1,3,2))                
                 jacobian = tf.tile(jacobian, (1, self.jacobian_tile, 1, 1))
@@ -183,19 +182,19 @@ class SparseMotion(layers.Layer):
                 out = []
                 r = self.static_batch_size * self.num_kp
                 for i in range(r):
-                    left, right = reshaped_jacobian[i], reshaped_grid[i]
+                    left, right = tf.reshape(reshaped_jacobian[None][:, i:i+1], (2, 2)), tf.reshape(reshaped_grid[None][:, i:i+1], (h * w, 2))
                     out.append(tf.reshape(tf.tensordot(right, tf.transpose(left), 1), (1, h*w, 2)))
-                coordinate_grid = tf.reshape(tf.concat(out, 0), (self.static_batch_size, self.num_kp, h, w, 2))                
+                coordinate_grid = tf.reshape(tf.concat(out, 0), (self.static_batch_size, self.num_kp, h * w, 2))                
 
-        mult = tf.tile(tf.reshape(kp_source, (-1, self.num_kp, 1, 1, 2)), (bs, 1, h, w, 1))
+        mult = tf.tile(tf.reshape(kp_source, (-1, self.num_kp, 1, 2)), (bs, 1, h * w, 1))
         mult = 0 - mult
-        driving_to_source = coordinate_grid - mult
+        driving_to_source = coordinate_grid - mult # b kp h*w 2
 
-        sparse_motions = tf.concat([identity_grid, driving_to_source], 1)
+        sparse_motions = tf.concat([identity_grid, driving_to_source], 1) # b kp+1 h*w 2
         return sparse_motions
 
     def build(self, input_shape):
-        self.grid = make_coordinate_grid(self.spatial_size, "float32")
+        self.grid = tf.reshape(make_coordinate_grid(self.spatial_size, "float32"), (-1, 2))
         if self.estimate_jacobian:
             self.jacobian_tile = self.num_kp if input_shape[1][1]==1 else 1
         super(SparseMotion, self).build(input_shape)
@@ -223,12 +222,10 @@ class Deform(layers.Layer):
         else:
             bs = self.static_batch_size
         h, w = self.spatial_size
-        source = tf.reshape(x[0], (-1, 1, 1, h, w, self.channels))
-        source_repeat = tf.tile(source, (bs, self.num_kp + 1, 1, 1, 1, 1))
-        source_repeat = tf.reshape(source_repeat, (-1, h, w, self.channels))
+        source_repeat = tf.tile(x[0], (bs * (self.num_kp + 1), 1, 1, 1)) # (b*11, h, w, 3)
         sparse_motions = tf.reshape(x[1], (-1, h, w, 2))
         sparse_deformed = self.grid_sample([source_repeat, sparse_motions])
-        sparse_deformed = tf.reshape(sparse_deformed, (-1, self.num_kp + 1, h, w, self.channels))
+        sparse_deformed = tf.reshape(sparse_deformed, (-1, h * w, self.channels))
         return sparse_deformed
 
     def build(self, input_shape):
@@ -460,9 +457,9 @@ class BilinearInterpolate(layers.Layer):
 
         l = tf.tile(tf.reshape(grid, (1, size[0], size[1], 2)), (N, 1, 1, 1)) - grid_float
 
-        w0 = tf.expand_dims(l[..., 1], 3)
+        w0 = tf.reshape(l[..., 1:2], (-1, size[0], size[1], 1)) #-1, H, W, 1
         w1 = 1 - w0
-        h0 = tf.expand_dims(l[..., 0], 3)
+        h0 = w0 = tf.reshape(l[..., 0:1], (-1, size[0], size[1], 1))
         h1 = 1 - h0
 
         return h1 * (w1 * val00 + w0 * val01) + h0 * (w1 * val10 + w0 * val11)
@@ -490,7 +487,7 @@ class GridSample(layers.Layer):
         grid = tf.reshape(grid, (-1, len(img_shape) - 1))
         s = 0
         for i in range(len(img_shape) - 1):
-            s += self.coefs[i] * grid[:, i]
+            s += self.coefs[i] * tf.reshape(grid[None][:, :, i:i+1], (-1,))
         return tf.reshape(tf.gather(img, tf.cast(s, 'int32')), final_shape)
 
     def _grid_sample(self, data):
@@ -501,8 +498,8 @@ class GridSample(layers.Layer):
         iH, iW = self.iH, self.iW
 
         # extract x,y from grid
-        x = tf.reshape(grid[:, :, :, 0], (-1, self.i_H, self.i_W, 1))
-        y = tf.reshape(grid[:, :, :, 1], (-1, self.i_H, self.i_W, 1))
+        x = tf.reshape(grid[:, :, :, 0:1], (-1, self.i_H, self.i_W, 1))
+        y = tf.reshape(grid[:, :, :, 1:2], (-1, self.i_H, self.i_W, 1))
 
         # ComputeLocationBase
         x = (x + 1) * (W / 2) - 0.5
@@ -616,18 +613,18 @@ class FormHeatmap(layers.Layer):
         zeros = tf.reduce_sum(0 * x, 1)
         zeros = tf.reshape(zeros, (-1, 1, h, w))
         heatmap = tf.concat([zeros, x], 1)  # B 11 HW
-        heatmap = tf.reshape(heatmap, (-1, self.num_kp + 1, h, w, 1))  # B 11 HW1
+        heatmap = tf.reshape(heatmap, (-1, h * w, 1))  # B 11 HW1
         return heatmap
 
     def build(self, input_shape):
         super(FormHeatmap, self).build(input_shape)
 
     def compute_output_shape(self, input_shape):
-        1, self.num_kp + 1, self.spatial_size[0], self.spatial_size[1], 1
+        return (None, self.num_kp + 1, self.spatial_size[0] * self.spatial_size[1], 1)
 
     def get_config(self):
         config = super(FormHeatmap, self).get_config()
-        config.update({"spatial_size": self.spatial_size})
+        config.update({"spatial_size": self.spatial_size, "num_kp": self.num_kp})
         return config
 
 
@@ -699,15 +696,16 @@ def dense_motion(
     h, w = shape
     h = int(h * scale_factor)
     w = int(w * scale_factor)
-    heatmap_representation = create_heatmap_representation(kp_driving, kp_source, h, w, num_kp, static_batch_size=static_batch_size)  # B 11 H W 1
+    heatmap_representation = create_heatmap_representation(kp_driving, kp_source, h, w, num_kp, static_batch_size=static_batch_size)  # B*11 H * W 1
     if not estimate_jacobian:
         kp_driving_jacobian, kp_source_jacobian = None, None
-    sparse_motion = SparseMotion((h, w), num_kp, estimate_jacobian, static_batch_size=static_batch_size)([kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian])  # B 11  H W 2
-    deformed_source = Deform((h, w), num_channels, num_kp, static_batch_size=static_batch_size)([source, sparse_motion])  # B 11 H W C
+    sparse_motion = SparseMotion((h, w), num_kp, estimate_jacobian, static_batch_size=static_batch_size)([kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian])  # B 11 H*W 2
+    deformed_source = Deform((h, w), num_channels, num_kp, static_batch_size=static_batch_size)([source, sparse_motion])  # B*11 H*W C
     
-    inp = layers.Concatenate(4)([heatmap_representation, deformed_source])  # B 11 H W C+1
-    inp = layers.Lambda(lambda l: tf.transpose(l, (0, 2, 3, 1, 4)))(inp)
-    inp = layers.Lambda(lambda l: tf.reshape(l, (-1, h, w, (num_kp + 1) * (num_channels + 1))), name='dense_motion_networkinputreshape')(inp)  # won't reshape, but will assert the shape
+    inp = layers.Concatenate(2)([heatmap_representation, deformed_source])  # B*11 H*W C+1
+    inp = layers.Lambda(lambda l: tf.reshape(l, (-1, num_kp+1, h * w, num_channels+1)))(inp)
+    inp = layers.Lambda(lambda l: tf.transpose(l, (0, 2, 1, 3)))(inp) #B HW 11 C+1
+    inp = layers.Lambda(lambda l: tf.reshape(l, (-1, h, w, (num_kp + 1) * (num_channels + 1))), name='dense_motion_networkinputreshape')(inp)  # B H W 44
     x = inp
     l = []
     l.append(x)
@@ -731,8 +729,8 @@ def dense_motion(
     mask = layers.Permute((2, 1, 3))(mask)
 
     sparse_motion = layers.Lambda(lambda l: tf.reshape(l, (-1, num_kp + 1, mh * mw, 2)), name='dense_motion_networkparsemotionreshape')(sparse_motion)
-    deformation = layers.Multiply()([sparse_motion, mask])  # b 11 64 64 2
-    deformation = layers.Lambda(lambda l: K.sum(l, axis=1))(deformation)  # b 64 64 2
+    deformation = layers.Multiply()([sparse_motion, mask])  # b 11 64 * 64 2
+    deformation = layers.Lambda(lambda l: K.sum(l, axis=1))(deformation)  # b 64 * 64 2
     deformation = layers.Lambda(lambda l: tf.reshape(l, (-1, mh, mw, 2)), name='dense_motion_networkdeformationreshape')(deformation)
     
     if estimate_occlusion_map:
@@ -740,7 +738,8 @@ def dense_motion(
         occlusion_map = layers.Activation("sigmoid")(occlusion_map)
     else:
         occlusion_map = None
-
+    
+    deformed_source = layers.Lambda(lambda l: tf.reshape(l, (-1, num+kp+1, h, w, num_channels)))
     return deformation, occlusion_map, outmask, deformed_source
 
 
@@ -801,12 +800,12 @@ def build_kp_detector_base(
             jacobian_map = layers.Lambda(lambda l: tf.tile(l, (1, 1, 1, num_kp, 1)))(jacobian_map)
         jm1_shape = jacobian_map.shape
         jacobian_map = layers.Lambda(lambda l: tf.reshape(l, (-1, jm1_shape[1] * jm1_shape[2] * num_jacobian_map, 4)), name='jacmapreshape1')(jacobian_map)
-        heatmap = layers.Lambda(lambda l: tf.expand_dims(l, 4))(heatmap)
-        heatmap = layers.Lambda(lambda l: tf.tile(l, (1, 1, 1, 1, 4)))(heatmap)
+        heatmap = layers.Lambda(lambda l: tf.reshape(l, (-1, jm0_shape[1] * jm0_shape[2], num_kp, 1)))(heatmap)
+        heatmap = layers.Lambda(lambda l: tf.tile(l, (1, 1, 1, 4)))(heatmap)
         heatmap_shape = heatmap.shape
-        heatmap = layers.Lambda(lambda l: tf.reshape(l, (-1,heatmap_shape[1] * heatmap_shape[2] * heatmap_shape[3], 4)), name='heatmapreshape')(heatmap)
+        heatmap = layers.Lambda(lambda l: tf.reshape(l, (-1, heatmap_shape[1] * heatmap_shape[2], 4)), name='heatmapreshape')(heatmap)
         jacobian = layers.Multiply(name='jacobian_mul')([heatmap, jacobian_map])  # 1 h w 10 4
-        jacobian = layers.Lambda(lambda l: tf.reshape(l, (-1, heatmap_shape[1] * heatmap_shape[2], num_jacobian_map, 4)), name='jacobianreshape0')(jacobian)        
+        jacobian = layers.Lambda(lambda l: tf.reshape(l, (-1, heatmap_shape[1], num_jacobian_map, 4)), name='jacobianreshape0')(jacobian)        
         jacobian = layers.Lambda(lambda l: tf.reduce_sum(l, 1))(jacobian)
         jacobian = layers.Lambda(lambda l: tf.reshape(l, (-1, num_jacobian_map, 2, 2)), name='jacobianreshape1')(jacobian)
         out_dict['jacobian'] = jacobian
@@ -1141,11 +1140,11 @@ class ProcessKpDriving(tf.Module):
         else:
             res = []
             for i in range(self.jacobian_number):
-                res.append(tf.tensordot(kp_driving_jacobian[:, i:i+1, :, :], inv_kp_driving_initial_jacobian[i], 1)) # b 1 2 2
+                res.append(tf.tensordot(kp_driving_jacobian[:, i:i+1, :, :], tf.reshape(inv_kp_driving_initial_jacobian[None][:, i:i+1], (2, 2)), 1)) # b 1 2 2
             jacobian_diff = tf.concat(res, 1)
             res = []
             for i in range(self.jacobian_number):
-                res.append(tf.tensordot(jacobian_diff[:, i:i+1, :, :], kp_source_jacobian[i], 1)) # b 1 2 2
+                res.append(tf.tensordot(jacobian_diff[:, i:i+1, :, :], tf.reshape(kp_source_jacobian[None][:, i:i+1], (2, 2)), 1)) # b 1 2 2
             kp_new_jacobian = tf.concat(res, 1)
         if self.hardcode is not None:
             return kp_new_jacobian
@@ -1188,10 +1187,10 @@ class ProcessKpDriving(tf.Module):
     
     def batch_batch_four_by_four_inv(self, x):
         num_kp = self.num_kp
-        a = x[:, :, 0, 0]
-        b = x[:, :, 0, 1]
-        c = x[:, :, 1, 0]
-        d = x[:, :, 1, 1]
+        a = x[:, :, 0:1, 0:1]
+        b = x[:, :, 0:1, 1:2]
+        c = x[:, :, 1:2, 0:1]
+        d = x[:, :, 1:2, 1:2]
         dets = a * d - b * c
         dets = tf.reshape(dets, (-1, num_kp, 1, 1))
         d = tf.reshape(d, (-1, num_kp, 1))
