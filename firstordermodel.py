@@ -254,27 +254,27 @@ class KpToGaussian(layers.Layer):
     def call(self, x):
         kp_variance = 0.01
         mean = x
-        grid = self.grid  # HW2
-        mean = tf.reshape(mean, (-1, self.num_kp, 1, 1, 2))  # B 10 1 1 2
+        grid = self.grid  # 1 1 H*W 2
+        mean = tf.reshape(mean, (-1, self.num_kp, 1, 2))  # B 10 1 2
         mean_sub = grid - mean
         mean_sub = self.reshape(mean_sub)
         if self.static_batch_size is None:
             mean_sub = tf.square(mean_sub)
         else:
             mean_sub = mean_sub * mean_sub
-        mean_sub = tf.reshape(mean_sub, (-1, self.num_kp, self.spatial_size[0], self.spatial_size[1], 2))
+        mean_sub = tf.reshape(mean_sub, (-1, self.num_kp, self.spatial_size[0] * self.spatial_size[1], 2))
         out = tf.math.exp(-0.5 * tf.reduce_sum(mean_sub, -1) / kp_variance)
         return out
 
     def build(self, input_shape):
-        grid = make_coordinate_grid(self.spatial_size, "float32")[None][None]
-        grid = tf.tile(grid, (1, self.num_kp, 1, 1, 1))
+        grid = tf.reshape(make_coordinate_grid(self.spatial_size, "float32"), (1, 1, self.spatial_size[0] * self.spatial_size[1], 2))
+        grid = tf.tile(grid, (1, self.num_kp, 1, 1))
         self.grid = grid
         self.reshape = layers.Lambda(lambda l: tf.reshape(l, (-1, self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2)), name='kptogaussianreshape')
         super(KpToGaussian, self).build(input_shape)
 
     def compute_output_shape(self, input_shape):
-        return (input_shape[0], self.num_kp, self.spatial_size[0], self.spatial_size[1])
+        return (input_shape[0], self.num_kp, self.spatial_size[0] * self.spatial_size[1])
 
     def get_config(self):
         config = super(KpToGaussian, self).get_config()
@@ -611,8 +611,8 @@ class FormHeatmap(layers.Layer):
     def call(self, x):
         h, w = self.spatial_size
         zeros = tf.reduce_sum(0 * x, 1)
-        zeros = tf.reshape(zeros, (-1, 1, h, w))
-        heatmap = tf.concat([zeros, x], 1)  # B 11 HW
+        zeros = tf.reshape(zeros, (-1, 1, h * w))
+        heatmap = tf.concat([zeros, x], 1)  # B 11 H*W
         heatmap = tf.reshape(heatmap, (-1, h * w, 1))  # B 11 HW1
         return heatmap
 
@@ -666,10 +666,10 @@ def create_heatmap_representation(kp_driving, kp_source, h, w, num_kp, static_ba
     gaussian_driving = KpToGaussian((h, w), num_kp, static_batch_size=static_batch_size)(kp_driving)
     gaussian_source = KpToGaussian((h, w), num_kp, static_batch_size=static_batch_size)(kp_source)
     if static_batch_size is None:
-        gaussian_source = layers.Lambda(lambda l: tf.tile(l[0], (tf.shape(l[1])[0], 1, 1, 1)))([gaussian_source, gaussian_driving])
+        gaussian_source = layers.Lambda(lambda l: tf.tile(l[0], (tf.shape(l[1])[0], 1, 1)))([gaussian_source, gaussian_driving])
     else:
-        gaussian_source = layers.Lambda(lambda l: tf.tile(l[0], (static_batch_size, 1, 1, 1)))([gaussian_source, gaussian_driving])
-    heatmap = layers.Subtract()([gaussian_driving, gaussian_source])  # B(KP)HW
+        gaussian_source = layers.Lambda(lambda l: tf.tile(l[0], (static_batch_size, 1, 1)))([gaussian_source, gaussian_driving])
+    heatmap = layers.Subtract()([gaussian_driving, gaussian_source])  # B(KP) H * W
     heatmap = FormHeatmap((h, w), num_kp)(heatmap)
     return heatmap
 
