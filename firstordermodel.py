@@ -173,7 +173,10 @@ class SparseMotion(layers.Layer):
                 right, left = tf.transpose(left, (0,2,1)), tf.transpose(right, (0,1,3,2))                
                 res = []
                 for i in range(jacobian_number):
-                    res.append(tf.tensordot(left[:, i:i+1, :, :], tf.reshape(right[None][:, i:i+1], (2, 2)), 1)) # b 1 2 2
+                    lt = tf.reshape(left[:, i:i+1, :, :], (-1, 2))[:]
+                    rt = tf.reshape(right[None][:, i:i+1], (2, 2))
+                    out = tf.nn.bias_add(lt @ rt, tf.ones(2) * 1e-20)
+                    res.append(tf.reshape(out, (self.static_batch_size, 1, 2, 2))) # b 1 2 2
                 jacobian_inter = tf.concat(res, 1)                
                 jacobian = tf.transpose(jacobian_inter, (0,1,3,2))                
                 jacobian = tf.tile(jacobian, (1, self.jacobian_tile, 1, 1))
@@ -182,8 +185,10 @@ class SparseMotion(layers.Layer):
                 out = []
                 r = self.static_batch_size * self.num_kp
                 for i in range(r):
-                    left, right = tf.reshape(reshaped_jacobian[None][:, i:i+1], (2, 2)), tf.reshape(reshaped_grid[None][:, i:i+1], (h * w, 2))
-                    out.append(tf.reshape(tf.tensordot(right, tf.transpose(left), 1), (1, h*w, 2)))
+                    right = tf.transpose(tf.reshape(reshaped_jacobian[None][:, i:i+1], (2, 2)))
+                    left = tf.reshape(reshaped_grid[None][:, i:i+1], (h * w, 2))[:]
+                    o = tf.nn.bias_add(left @ right, tf.ones(2) * 1e-20)
+                    out.append(tf.reshape(o, (1, h*w, 2)))
                 coordinate_grid = tf.reshape(tf.concat(out, 0), (self.static_batch_size, self.num_kp, h * w, 2))                
 
         mult = tf.tile(tf.reshape(kp_source, (-1, self.num_kp, 1, 2)), (bs, 1, h * w, 1))
@@ -950,8 +955,7 @@ def build_generator_base(
     for i in range(num_down_blocks):
         x = UpBlock2d(x, min(max_features, block_expansion * (2 ** (num_down_blocks - i - 1))), name="up_blocks" + str(i), static_batch_size=static_batch_size)
 
-    x = layers.Conv2D(num_channels, kernel_size=(7, 7), padding="same", name="final")(x)
-    out = layers.Activation("sigmoid", name="output")(x)    
+    out = layers.Conv2D(num_channels, kernel_size=(7, 7), padding="same", name="final", activation="sigmoid")(x)
     
     out_dict = {'prediction':out} 
     
@@ -1140,11 +1144,17 @@ class ProcessKpDriving(tf.Module):
         else:
             res = []
             for i in range(self.jacobian_number):
-                res.append(tf.tensordot(kp_driving_jacobian[:, i:i+1, :, :], tf.reshape(inv_kp_driving_initial_jacobian[None][:, i:i+1], (2, 2)), 1)) # b 1 2 2
+                left = tf.reshape(kp_driving_jacobian[:, i:i+1, :, :], (self.static_batch_size * 2, 2))[:]
+                right = tf.reshape(inv_kp_driving_initial_jacobian[None][:, i:i+1], (2, 2))
+                out = tf.nn.bias_add(left @ right, tf.ones(2) * 1e-20)
+                res.append(tf.reshape(out, (self.static_batch_size, 1, 2, 2))) # b 1 2 2
             jacobian_diff = tf.concat(res, 1)
             res = []
             for i in range(self.jacobian_number):
-                res.append(tf.tensordot(jacobian_diff[:, i:i+1, :, :], tf.reshape(kp_source_jacobian[None][:, i:i+1], (2, 2)), 1)) # b 1 2 2
+                left = tf.reshape(jacobian_diff[:, i:i+1, :, :], (self.static_batch_size * 2, 2))[:]
+                right = tf.reshape(kp_source_jacobian[None][:, i:i+1], (2, 2))
+                out = tf.nn.bias_add(left @ right, tf.ones(2) * 1e-20)
+                res.append(tf.reshape(out, (self.static_batch_size, 1, 2, 2))) # b 1 2 2
             kp_new_jacobian = tf.concat(res, 1)
         if self.hardcode is not None:
             return kp_new_jacobian
