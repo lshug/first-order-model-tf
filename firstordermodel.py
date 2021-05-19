@@ -744,7 +744,7 @@ def dense_motion(
     else:
         occlusion_map = None
     
-    deformed_source = layers.Lambda(lambda l: tf.reshape(l, (-1, num+kp+1, h, w, num_channels)))
+    deformed_source = layers.Lambda(lambda l: tf.reshape(l, (-1, num_kp+1, h, w, num_channels)))(deformed_source)
     return deformation, occlusion_map, outmask, deformed_source
 
 
@@ -992,7 +992,7 @@ def build_generator_base(
             _, bias = sd.pop(0)
             weight = weight.transpose(2, 3, 1, 0)
             layer.set_weights([weight, bias])
-
+    
     return model
 
 
@@ -1144,18 +1144,18 @@ class ProcessKpDriving(tf.Module):
         else:
             res = []
             for i in range(self.jacobian_number):
-                left = tf.reshape(kp_driving_jacobian[:, i:i+1, :, :], (self.static_batch_size * 2, 2))[:]
+                left = tf.reshape(kp_driving_jacobian[:, i:i+1, :, :], (self.static_batch_size * 2, 2))
                 right = tf.reshape(inv_kp_driving_initial_jacobian[None][:, i:i+1], (2, 2))
                 out = tf.nn.bias_add(left @ right, tf.ones(2) * 1e-20)
-                res.append(tf.reshape(out, (self.static_batch_size, 1, 2, 2))) # b 1 2 2
-            jacobian_diff = tf.concat(res, 1)
+                res.append(tf.reshape(out, (1, self.static_batch_size * 2, 2))) # b 1 2 2
+            jacobian_diff = tf.reshape(tf.transpose(tf.concat(res, 0), (1, 0, 2)), (self.static_batch_size, self.jacobian_number, 2, 2))
             res = []
             for i in range(self.jacobian_number):
-                left = tf.reshape(jacobian_diff[:, i:i+1, :, :], (self.static_batch_size * 2, 2))[:]
+                left = tf.reshape(jacobian_diff[:, i:i+1, :, :], (self.static_batch_size * 2, 2))
                 right = tf.reshape(kp_source_jacobian[None][:, i:i+1], (2, 2))
                 out = tf.nn.bias_add(left @ right, tf.ones(2) * 1e-20)
-                res.append(tf.reshape(out, (self.static_batch_size, 1, 2, 2))) # b 1 2 2
-            kp_new_jacobian = tf.concat(res, 1)
+                res.append(tf.reshape(out, (1, self.static_batch_size * 2, 2))) # b 1 2 2
+            kp_new_jacobian = tf.reshape(tf.transpose(tf.concat(res, 0), (1, 0, 2)), (self.static_batch_size, self.jacobian_number, 2, 2))
         if self.hardcode is not None:
             return kp_new_jacobian
         use_relative_jacobian = tf.cast(use_relative_jacobian, 'float32')
