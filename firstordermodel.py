@@ -1086,8 +1086,8 @@ class ProcessKpDriving(tf.Module):
                 tf.TensorSpec([1, jacobian_number, 2, 2], tf.float32),
                 tf.TensorSpec([1, num_kp, 2], tf.float32),
                 tf.TensorSpec([1, jacobian_number, 2, 2], tf.float32),
-                tf.TensorSpec((), tf.bool),
-                tf.TensorSpec((), tf.bool),
+                tf.TensorSpec((), tf.float32),
+                tf.TensorSpec((), tf.float32),
             ]
         if estimate_jacobian:
             self.__call__ = tf.function(input_signature=input_signature)(self.__call__)
@@ -1122,7 +1122,7 @@ class ProcessKpDriving(tf.Module):
             driving_area = self.convex_hull_area(kp_driving_initial)
             scale = tf.sqrt(source_area) / tf.sqrt(driving_area)
             ones = scale * 0.0 + 1.0
-            scale = tf.where(adapt_movement_scale, scale, ones)[None][None][None]
+            scale = (adapt_movement_scale * scale + (1.0 - adapt_movement_scale) * ones)[None][None][None]
         kp_value_diff = kp_driving - kp_driving_initial
         kp_value_diff = kp_value_diff * scale
 
@@ -1158,7 +1158,6 @@ class ProcessKpDriving(tf.Module):
             kp_new_jacobian = tf.reshape(tf.transpose(tf.concat(res, 0), (1, 0, 2)), (self.static_batch_size, self.jacobian_number, 2, 2))
         if self.hardcode is not None:
             return kp_new_jacobian
-        use_relative_jacobian = tf.cast(use_relative_jacobian, 'float32')
         kp_new_jacobian = use_relative_jacobian * kp_new_jacobian + (1.0 - use_relative_jacobian) * kp_driving_jacobian
         return kp_new_jacobian
     
