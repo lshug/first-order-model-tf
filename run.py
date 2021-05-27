@@ -49,7 +49,7 @@ frame_shape = config['dataset_params']['frame_shape']
 num_channels = config['model_params']['common_params']['num_channels']
 
 with context:
-    kp_detector, process_kp_driving, generator, _interpreter_obj_list = load_funcs[parser.target](parser.model, prediction_only=parser.datamode=='file', static_batch_size = None if not parser.exact_batch else parser.batch_size, hardcode='1' + str(int(not parser.adapt_movement_scale)))
+    kp_detector, process_kp_driving, generator, _interpreter_obj_list = load_funcs[parser.target](parser.model, prediction_only=parser.datamode=='file', static_batch_size = None if not parser.exact_batch else parser.batch_size, hardcode='1' + str(int(parser.adapt_movement_scale)))
     format_appends = {'direct':'', 'savedmodel':'.savedmodel', 'tflite':'.tflite'}
 
     if parser.mode == 'animate':
