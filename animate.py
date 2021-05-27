@@ -74,16 +74,16 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
             if estimate_jacobian:
                 kp_norm = kp_driving if not use_relative_movement else process_kp_driving(
                     kp_driving['value'], kp_driving['jacobian'], kp_driving_initial['value'], kp_driving_initial['jacobian'], kp_source['value'], kp_source['jacobian'],
-                    use_relative_jacobian, adapt_movement_scale
+                    float(use_relative_jacobian), float(adapt_movement_scale)
                 )
                 out = generator(source_image, kp_norm['value'], kp_norm['jacobian'], kp_source['value'], kp_source['jacobian'])
             else:
                 kp_norm = kp_driving if not use_relative_movement else process_kp_driving(
-                    kp_driving['value'], kp_driving_initial['value'], kp_source['value'], adapt_movement_scale
+                    kp_driving['value'], kp_driving_initial['value'], kp_source['value'], float(adapt_movement_scale)
                 )
                 out = generator(source_image, kp_norm['value'], kp_norm['value'])
             try:
-                predictions.append(out['prediction'].numpy())
+                predictions.append(out['prediction'])
             except:
                 predictions.append(out['prediction'])
             if batch_size == 1 and visualizer_params is not None:
@@ -100,4 +100,4 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
     if profile:
         tf.profiler.experimental.stop()
         
-    return np.concatenate(predictions, 0)[:original_l], np.concatenate(visualizations, 0) if len(visualizations) > 0 else None
+    return np.concatenate([tf.concat(predictions, 0).numpy()], 0)[:original_l], np.concatenate(visualizations, 0) if len(visualizations) > 0 else None
