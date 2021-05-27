@@ -1140,26 +1140,23 @@ class ProcessKpDriving(tf.Module):
         kp_source_jacobian = tf.reshape(kp_source_jacobian, (-1, 2, 2))
         if self.static_batch_size is None:
             jacobian_diff = kp_driving_jacobian @ inv_kp_driving_initial_jacobian
-            kp_new_jacobian = jacobian_diff @ kp_source_jacobian
+            kp_new_jacobian = jacobian_diff @ kp_source_jacobian            
         else:
-            res = []
-            for i in range(self.jacobian_number):
-                left = tf.reshape(kp_driving_jacobian[:, i:i+1, :, :], (self.static_batch_size * 2, 2))
-                right = tf.reshape(inv_kp_driving_initial_jacobian[None][:, i:i+1], (2, 2))
-                out = tf.nn.bias_add(left @ right, tf.ones(2) * 1e-20)
-                res.append(tf.reshape(out, (1, self.static_batch_size * 2, 2))) # b 1 2 2
-            jacobian_diff = tf.reshape(tf.transpose(tf.concat(res, 0), (1, 0, 2)), (self.static_batch_size, self.jacobian_number, 2, 2))
-            res = []
-            for i in range(self.jacobian_number):
-                left = tf.reshape(jacobian_diff[:, i:i+1, :, :], (self.static_batch_size * 2, 2))
-                right = tf.reshape(kp_source_jacobian[None][:, i:i+1], (2, 2))
-                out = tf.nn.bias_add(left @ right, tf.ones(2) * 1e-20)
-                res.append(tf.reshape(out, (1, self.static_batch_size * 2, 2))) # b 1 2 2
-            kp_new_jacobian = tf.reshape(tf.transpose(tf.concat(res, 0), (1, 0, 2)), (self.static_batch_size, self.jacobian_number, 2, 2))
+            jacobian_diff = self.jacobian_pseudo_batch_matmul(kp_driving_jacobian, inv_kp_driving_initial_jacobian)
+            kp_new_jacobian = self.jacobian_pseudo_batch_matmul(jacobian_diff, kp_source_jacobian)
         if self.hardcode is not None:
             return kp_new_jacobian
-        kp_new_jacobian = use_relative_jacobian * kp_new_jacobian + (1.0 - use_relative_jacobian) * kp_driving_jacobian
+        kp_new_jacobian = kp_new_jacobian * use_relative_jacobian + kp_driving_jacobian * (1.0 - use_relative_jacobian) 
         return kp_new_jacobian
+    
+    def jacobian_pseudo_batch_matmul(self, A, v):
+        res = []
+        for i in range(self.jacobian_number):
+            left = tf.reshape(A[:, i:i+1, :, :], (self.static_batch_size * 2, 2))
+            right = tf.reshape(v[None][:, i:i+1], (2, 2))
+            out = tf.nn.bias_add(left @ right, tf.ones(2) * 1e-30)
+            res.append(tf.reshape(out, (1, self.static_batch_size * 2, 2))) # b 1 2 2
+        return tf.reshape(tf.transpose(tf.reshape(tf.concat(res, 0), (self.num_kp, self.static_batch_size, 2, 2)), (1, 0, 2, 3)), (self.static_batch_size, self.jacobian_number, 2, 2))
     
     @tf.function
     def convex_hull_area(self, X):
