@@ -27,7 +27,15 @@ parser.add_argument("--exactbatch", dest="exact_batch", action="store_true", hel
 parser.add_argument("--device", dest="device", default=None, help="device to use")
 parser.add_argument("--profile", action="store_true", help="enable tensorboard profiling")
 parser.add_argument("--visualizer", action="store_true", help="enable visualizer, only relevant for dataset datamode")
+parser.add_argument('--loadwithtorch', action="store_true",
+                    help="use torch to load checkpoints instead of trying to load tensor buffers manually (requires pytorch)")
+
 parser = parser.parse_args()
+
+if parser.loadwithtorch:
+    import load_torch_checkpoint
+    load_torch_checkpoint.mode = 'torch'
+
 context = tf.device(parser.device) if parser.device is not None else nullcontext()
 if parser.profile:
     tf.debugging.set_log_device_placement(True)

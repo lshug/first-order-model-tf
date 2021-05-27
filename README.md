@@ -40,6 +40,8 @@ optional arguments:
   --device DEVICE       device to use
   --profile             enable tensorboard profiling
   --visualizer          enable visualizer, only relevant for dataset datamode
+  --loadwithtorch       use torch to load checkpoints instead of trying to load tensor buffers manually (requires pytorch)
+
 ```
 
 ```
@@ -62,6 +64,7 @@ optional arguments:
                         optional static batch size to use
   --hardcode {00,01,10,11}
                         optionally hardcode values for use_relative_jacobian and adapt_movement_scale at build type
+  --loadwithtorch       use torch to load checkpoints instead of trying to load tensor buffers manually (requires pytorch)
 ```
 
 ## Inference details
@@ -80,11 +83,15 @@ One thing I didn't implement from the original is the find_best_frame option, wh
 
 **How do I add custom-trained models?**
 
-Place checkpoint "{name}-cpk.pth.tar" in ./checkpoint, place "{name}-256.yml" in ./config. 
+Place checkpoint "{name}-cpk.pth.tar" in ./checkpoint, place "{name}-256.yml" in ./config.
 
 **But my model uses frame shapes that are not 256x256!**
 
 Cool. Place checkpoint "{name}-cpk.pth.tar" in ./checkpoint, place "{name}-256.yml" in ./config. 
+
+**I'm getting weird, distorted outputs, wat do?**
+
+This is a known issue with the reverse-engineered torch checkpoint loader in certain environments. Build/run with --loadwithtorch to use torch to load the checkpoints into numpy arrays. This requires an installation of pytorch in the environment.
 
 **What ops are used in or necessary for the models?**
 

@@ -88,7 +88,13 @@ parser.add_argument('--tfjs', action='store_true', help="build tf.js models, req
 parser.add_argument('--staticbatchsize', action='store', type=int, default=None, help="optional static batch size to use")
 parser.add_argument('--hardcode', default=None, choices=['00', '01', '10', '11'],
                     help="optionally hardcode values for use_relative_jacobian and adapt_movement_scale at build type")
+parser.add_argument('--loadwithtorch', action="store_true",
+                    help="use torch to load checkpoints instead of trying to load tensor buffers manually (requires pytorch)")
 parser = parser.parse_args()
+
+if parser.loadwithtorch:
+    import load_torch_checkpoint
+    load_torch_checkpoint.mode = 'torch'
 
 print("Building")
 if not parser.a:

@@ -2,6 +2,8 @@ import pickle
 import sys
 import numpy as np
 
+mode = 'numpy'
+
 arr_dict = {}
 scount = 0
 
@@ -39,8 +41,8 @@ class InjectorUnpickler(pickle.Unpickler):
             mod = sys.modules[module]
             klass = getattr(mod, name)
             return klass
-
-def load_torch_checkpoint(path):
+        
+def numpy_load(path):
     deserialized_objects = {}
     def persistent_load(saved_id):
         data = saved_id[1:]
@@ -67,3 +69,18 @@ def load_torch_checkpoint(path):
         np.putmask(arr, np.ones(arr.shape, dtype='bool'), new_arr)
     arr_dict.clear()
     return result 
+
+def torch_load(path):
+    import torch
+    intermediate = torch.load(path, map_location=torch.device('cpu'))
+    for k in intermediate['kp_detector'].keys():
+        intermediate['kp_detector'][k] = intermediate['kp_detector'][k].numpy()
+    for k in intermediate['generator'].keys():
+        intermediate['generator'][k] = intermediate['generator'][k].numpy()
+    return {'kp_detector':intermediate['kp_detector'], 'generator':intermediate['generator']}
+
+def load_torch_checkpoint(path):
+    if mode == 'numpy':
+        return numpy_load(path)
+    else:
+        return torch_load(path)
