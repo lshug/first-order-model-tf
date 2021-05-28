@@ -23,8 +23,8 @@ class FloatStorage:
 class LongStorage:
     def __init__(self, size):
         global scount
-        self.arr = np.zeros(size, dtype='long')
-        self.dtype = 'long'
+        self.arr = np.zeros(size, dtype='int64')
+        self.dtype = 'int64'
         self.ind = scount
         scount += 1
 
