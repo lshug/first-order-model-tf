@@ -5,8 +5,10 @@ import argparse
 import os
 import subprocess
 from tqdm import tqdm
+import json
 
 js_command_base = "tensorflowjs_converter --control_flow_v2=True --input_format=tf_saved_model --metadata= --saved_model_tags=serve --signature_name=serving_default --strip_debug_ops=True --weight_shard_size_bytes=4194304 saved_models/{0}/{1} js/{0}/{1}"
+    
 
 def build(checkpoint_path, config_path, output_name, module, prediction_only, hardcode, tfjs, static_batch_size, nolite, float16):
     js_command = js_command_base
@@ -42,6 +44,9 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, ha
                 kp_detector_converter.target_spec.supported_types = [tf.float16]
             kp_detector_tflite = kp_detector_converter.convert()
             open("tflite/" + output_name + "/kp_detector.tflite", "wb").write(kp_detector_tflite)
+            signature = tf.lite.Interpreter(model_content=kp_detector_tflite).get_signature_runner()
+            tensor_index_map = {'inputs':dict(signature._inputs), 'outputs':dict(signature._outputs)}
+            json.dump(tensor_index_map, open("tflite/" + output_name + "/kp_detector.json", 'w'))            
         if tfjs:
             command = js_command.format(output_name, 'kp_detector')
             subprocess.run(command.split())
@@ -57,6 +62,9 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, ha
                 generator_converter.target_spec.supported_types = [tf.float16]
             generator_tflite = generator_converter.convert()
             open("tflite/" + output_name + "/generator.tflite", "wb").write(generator_tflite)
+            signature = tf.lite.Interpreter(model_content=generator_tflite).get_signature_runner()
+            tensor_index_map = {'inputs':dict(signature._inputs), 'outputs':dict(signature._outputs)}
+            json.dump(tensor_index_map, open("tflite/" + output_name + "/generator.json", 'w'))            
         if tfjs:
             command = js_command.format(output_name, 'generator')
             subprocess.run(command.split())
@@ -73,6 +81,9 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, ha
                 process_kp_driving_converter.target_spec.supported_types = [tf.float16]
             process_kp_driving_tflite = process_kp_driving_converter.convert()
             open("tflite/" + output_name + "/process_kp_driving.tflite", "wb").write(process_kp_driving_tflite)
+            signature = tf.lite.Interpreter(model_content=process_kp_driving_tflite).get_signature_runner()
+            tensor_index_map = {'inputs':dict(signature._inputs), 'outputs':dict(signature._outputs)}
+            json.dump(tensor_index_map, open("tflite/" + output_name + "/process_kp_driving.json", 'w'))
         if tfjs:
             command = js_command.format(output_name, 'process_kp_driving')
             subprocess.run(command.split())
