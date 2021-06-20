@@ -55,7 +55,7 @@ def load_models_savedmodel(model, prescale=False, **kwargs):
     estimate_jacobian = 'jacobian' in str(generator_base.structured_input_signature)
     kp_detector = lambda l: kp_detector_base(img=l)
     if prescale:
-        generator = lambda *args: generator_base(source_image=args[0], kp_driving=args[1], kp_driving_jacobian=args[2], kp_source=args[3], kp_source_jacobian=args[4], args_0=args[5])
+        generator = lambda *args: generator_base(source_image=args[0], kp_driving=args[1], kp_driving_jacobian=args[2], kp_source=args[3], kp_source_jacobian=args[4], source_image_scaled=args[5])
     else:
         generator = lambda *args: generator_base(source_image=args[0], kp_driving=args[1], kp_driving_jacobian=args[2], kp_source=args[3], kp_source_jacobian=args[4])
     if estimate_jacobian:
@@ -71,7 +71,7 @@ def load_models_savedmodel(model, prescale=False, **kwargs):
             )
     else:
         if prescale:
-            generator = lambda l: generator_base(source_image=l[0], kp_driving=l[1], kp_source=l[2], args_0=l[3])
+            generator = lambda l: generator_base(source_image=l[0], kp_driving=l[1], kp_source=l[2], source_image_scaled=l[3])
         else:
             generator = lambda l: generator_base(source_image=l[0], kp_driving=l[1], kp_source=l[2])
         process_kp_driving = lambda l, m, n, o: process_kp_driving_base(
@@ -94,7 +94,7 @@ def load_models_tflite(model, prescale=False, **kwargs):
     kp_detector = lambda img: kp_detector_base(img=img)
     if estimate_jacobian:
         if prescale:
-            generator = lambda *l: generator_base(source_image=l[0], kp_driving=l[1], kp_driving_jacobian=l[2], kp_source=l[3], kp_source_jacobian=l[4], args_0=l[5])
+            generator = lambda *l: generator_base(source_image=l[0], kp_driving=l[1], kp_driving_jacobian=l[2], kp_source=l[3], kp_source_jacobian=l[4], source_image_scaled=l[5])
         else:
             generator = lambda *l: generator_base(source_image=l[0], kp_driving=l[1], kp_driving_jacobian=l[2], kp_source=l[3], kp_source_jacobian=l[4])        
         process_kp_driving = lambda l, m, n, o, p, q, r, s: process_kp_driving_base(
@@ -108,7 +108,7 @@ def load_models_tflite(model, prescale=False, **kwargs):
                 adapt_movement_scale=tf.convert_to_tensor(s),
                 )
     else:
-        generator = lambda *l: generator_base(source_image=l[0], kp_driving=l[1], kp_source=l[2], *l[4:])
+        generator = lambda *l: generator_base(source_image=l[0], kp_driving=l[1], kp_source=l[2], source_image_scaled=l[3])
         process_kp_driving = lambda l, m, n, o: process_kp_driving_base(
                     kp_driving=l,
                     kp_driving_initial=m,

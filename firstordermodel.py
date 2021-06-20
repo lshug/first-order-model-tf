@@ -1059,7 +1059,7 @@ class Generator(tf.Module):
             ]
         if prescale and dense_motion_params is not None:
             scale_factor = dense_motion_params["scale_factor"]
-            input_signature.append(tf.TensorSpec([1, int(frame_shape[0] * scale_factor), int(frame_shape[1] * scale_factor), num_channels], tf.float32))
+            input_signature.append(tf.TensorSpec([1, int(frame_shape[0] * scale_factor), int(frame_shape[1] * scale_factor), num_channels], tf.float32, name="source_image_scaled"))
         if estimate_jacobian:
             self.__call__ = tf.function(input_signature=input_signature)(self.__call__)
         else:
@@ -1069,11 +1069,8 @@ class Generator(tf.Module):
         super(Generator, self).__init__()
         
     
-    def call_nojacobian(self, source_image, kp_driving, kp_source):
-        return self.generator([source_image, kp_driving, kp_source])
-    
-    def call_nojacobian_prescale(self, source_image, kp_driving, kp_source, source_image_scaled):
-        return self.generator([source_image, kp_driving, kp_source, source_image_scaled])
+    def call_nojacobian(self, source_image, kp_driving, kp_source, *args):
+        return self.generator([source_image, kp_driving, kp_source, *args])
 
     def __call__(self, source_image, kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian, *args):
         return self.generator([source_image, kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian, *args])
