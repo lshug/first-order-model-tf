@@ -680,6 +680,7 @@ def create_heatmap_representation(kp_driving, kp_source, h, w, num_kp, static_ba
 
 def dense_motion(
     source,
+    source_image_scaled,
     kp_driving,
     kp_driving_jacobian,
     kp_source,
@@ -695,7 +696,9 @@ def dense_motion(
     scale_factor=0.25,
     static_batch_size=None,
 ):
-    if scale_factor != 1:
+    if source_image_scaled is not None:
+        source = source_image_scaled
+    elif scale_factor != 1:
         source = AntiAliasInterpolation2d(num_channels, scale_factor, static_batch_size=1)(source)
 
     h, w = shape
@@ -762,6 +765,7 @@ def build_kp_detector_base(
     single_jacobian_map=False,
     pad=0,
     static_batch_size=None,
+    prescale=False,
 ):
     inp = layers.Input(shape=(frame_shape[0], frame_shape[1], num_channels), dtype="float32", name="img")
     
@@ -770,6 +774,7 @@ def build_kp_detector_base(
         x = inp
     else:
         x = AntiAliasInterpolation2d(num_channels, scale_factor, static_batch_size=static_batch_size)(inp)
+        source_image_scaled = x
 
     # encode
     l = []
@@ -815,6 +820,8 @@ def build_kp_detector_base(
         jacobian = layers.Lambda(lambda l: tf.reshape(l, (-1, num_jacobian_map, 2, 2)), name='jacobianreshape1')(jacobian)
         out_dict['jacobian'] = jacobian
         
+    if prescale:
+        out_dict['source_image_scaled'] = source_image_scaled 
     
     # make model
     model = keras.Model(inp, out_dict)
@@ -857,6 +864,7 @@ class KpDetector(tf.Module):
         single_jacobian_map=False,
         pad=0,
         static_batch_size=None,
+        prescale=False,
         **kwargs,
     ):
         self.single_jacobian_map = single_jacobian_map
@@ -874,6 +882,7 @@ class KpDetector(tf.Module):
             single_jacobian_map=single_jacobian_map,
             pad=pad,
             static_batch_size=static_batch_size,
+            prescale=prescale
         )
         self.__call__ = tf.function(input_signature=[tf.TensorSpec([static_batch_size, frame_shape[0], frame_shape[1], num_channels], tf.float32)])(self.__call__)
         super(KpDetector, self).__init__()
@@ -882,8 +891,8 @@ class KpDetector(tf.Module):
         return self.kp_detector(img)
 
 
-def build_kp_detector(checkpoint, static_batch_size=None, **kwargs):
-    return KpDetector(checkpoint=checkpoint, static_batch_size=static_batch_size, **kwargs)
+def build_kp_detector(checkpoint, static_batch_size=None, prescale=False, **kwargs):
+    return KpDetector(checkpoint=checkpoint, static_batch_size=static_batch_size, prescale=prescale, **kwargs)
 
 
 def build_generator_base(
@@ -901,14 +910,19 @@ def build_generator_base(
     estimate_occlusion_map=True,
     dense_motion_params={"block_expansion": 64, "max_features": 1024, "num_blocks": 5, "scale_factor": 0.25},
     static_batch_size=None,
+    prescale=False,
 ):
     jacobian_number = 1 if single_jacobian_map else num_kp
-
     inp = layers.Input(shape=(frame_shape[0], frame_shape[1], num_channels), dtype="float32", name="source")
     driving_kp = layers.Input(shape=(num_kp, 2), dtype="float32", name="kp_driving")
     kp_driving_jacobian = layers.Input(shape=(jacobian_number, 2, 2), dtype="float32", name="kp_driving_jacobian")
     source_kp = layers.Input(shape=(num_kp, 2), dtype="float32", name="kp_source")
     kp_source_jacobian = layers.Input(shape=(jacobian_number, 2, 2), dtype="float32", name="kp_source_jacobian")
+    if prescale and dense_motion_params is not None:
+        scale_factor = dense_motion_params["scale_factor"]
+        inp_scaled = layers.Input(shape=(int(frame_shape[0] * scale_factor), int(frame_shape[1] * scale_factor), num_channels), dtype="float32", name="source_image_scaled")
+    else:
+        inp_scaled = None
 
     # source_image only
     x = SameBlock2d(inp, block_expansion, name="first")
@@ -919,7 +933,7 @@ def build_generator_base(
     
     if dense_motion_params is not None:
         deformation, occlusion_map, mask, sparse_deformed = dense_motion(
-            inp, driving_kp, kp_driving_jacobian, source_kp, 
+            inp, inp_scaled, driving_kp, kp_driving_jacobian, source_kp, 
             kp_source_jacobian, (frame_shape[0], frame_shape[1]), 
             num_channels=num_channels, num_kp=num_kp,
             estimate_occlusion_map=estimate_occlusion_map,
@@ -969,6 +983,8 @@ def build_generator_base(
         inputs = [inp, driving_kp, kp_driving_jacobian, source_kp, kp_source_jacobian]
     else:
         inputs = [inp, driving_kp, source_kp]
+    if prescale and dense_motion_params is not None:
+        inputs.append(inp_scaled)
     
     model = keras.Model(inputs, out_dict)
     model.trainable = False
@@ -1013,6 +1029,7 @@ class Generator(tf.Module):
         estimate_occlusion_map=True,
         dense_motion_params={"block_expansion": 64, "max_features": 1024, "num_blocks": 5, "scale_factor": 0.25},
         static_batch_size=None,
+        prescale=False,
         **kwargs,
     ):
         jacobian_number = 1 if single_jacobian_map else num_kp
@@ -1031,6 +1048,7 @@ class Generator(tf.Module):
             estimate_occlusion_map=estimate_occlusion_map,
             dense_motion_params=dense_motion_params,
             static_batch_size=static_batch_size,
+            prescale=prescale,
         )
         input_signature=[
                 tf.TensorSpec([1, frame_shape[0], frame_shape[1], num_channels], tf.float32),
@@ -1039,6 +1057,9 @@ class Generator(tf.Module):
                 tf.TensorSpec([1, num_kp, 2], tf.float32),
                 tf.TensorSpec([1, jacobian_number, 2, 2], tf.float32),
             ]
+        if prescale and dense_motion_params is not None:
+            scale_factor = dense_motion_params["scale_factor"]
+            input_signature.append(tf.TensorSpec([1, int(frame_shape[0] * scale_factor), int(frame_shape[1] * scale_factor), num_channels], tf.float32))
         if estimate_jacobian:
             self.__call__ = tf.function(input_signature=input_signature)(self.__call__)
         else:
@@ -1046,17 +1067,21 @@ class Generator(tf.Module):
                 input_signature.remove(to_remove)
             self.__call__ = tf.function(input_signature=input_signature)(self.call_nojacobian)
         super(Generator, self).__init__()
+        
     
     def call_nojacobian(self, source_image, kp_driving, kp_source):
         return self.generator([source_image, kp_driving, kp_source])
+    
+    def call_nojacobian_prescale(self, source_image, kp_driving, kp_source, source_image_scaled):
+        return self.generator([source_image, kp_driving, kp_source, source_image_scaled])
 
-    def __call__(self, source_image, kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian):
-        return self.generator([source_image, kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian])
+    def __call__(self, source_image, kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian, *args):
+        return self.generator([source_image, kp_driving, kp_driving_jacobian, kp_source, kp_source_jacobian, *args])
             
 
 
-def build_generator(checkpoint, full_output=True, static_batch_size=None, **kwargs):
-    return Generator(checkpoint=checkpoint, full_output=full_output, static_batch_size=static_batch_size, **kwargs)
+def build_generator(checkpoint, full_output=True, static_batch_size=None, prescale=False, **kwargs):
+    return Generator(checkpoint=checkpoint, full_output=full_output, static_batch_size=static_batch_size, prescale=prescale, **kwargs)
 
 
 class ProcessKpDriving(tf.Module):

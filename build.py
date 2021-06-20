@@ -10,7 +10,7 @@ import json
 js_command_base = "tensorflowjs_converter --control_flow_v2=True --input_format=tf_saved_model --metadata= --saved_model_tags=serve --signature_name=serving_default --strip_debug_ops=True --weight_shard_size_bytes=4194304 saved_models/{0}/{1} js/{0}/{1}"
     
 
-def build(checkpoint_path, config_path, output_name, module, prediction_only, hardcode, tfjs, static_batch_size, nolite, float16):
+def build(checkpoint_path, config_path, output_name, module, prediction_only, hardcode, tfjs, static_batch_size, nolite, float16, prescale):
     js_command = js_command_base
     if float:
         js_command = js_command_base.replace('--metadata= ', '--metadata= --quantize_float16=* ')
@@ -34,7 +34,7 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, ha
     
     if module == 'kp_detector' or module=='all':
         kp_detector = build_kp_detector(checkpoint_path, **config["dataset_params"], **config["model_params"]["kp_detector_params"], **config["model_params"]["common_params"], 
-                                        static_batch_size=static_batch_size)
+                                        static_batch_size=static_batch_size, prescale=prescale)
         print(f"{output_name} - kp_detector")
         tf.saved_model.save(kp_detector, "saved_models/" + output_name + "/kp_detector", kp_detector.__call__.get_concrete_function())
         if not nolite:
@@ -52,7 +52,7 @@ def build(checkpoint_path, config_path, output_name, module, prediction_only, ha
             subprocess.run(command.split())
     
     if module == 'generator' or module=='all':
-        generator = build_generator(checkpoint_path, not prediction_only, **config["dataset_params"], **config["model_params"]["generator_params"], **config["model_params"]["common_params"], single_jacobian_map=single_jacobian_map, static_batch_size=static_batch_size)
+        generator = build_generator(checkpoint_path, not prediction_only, **config["dataset_params"], **config["model_params"]["generator_params"], **config["model_params"]["common_params"], single_jacobian_map=single_jacobian_map, static_batch_size=static_batch_size, prescale=prescale)
         print(f"{output_name} - generator")
         tf.saved_model.save(generator, "saved_models/" + output_name + "/generator", signatures=generator.__call__.get_concrete_function())
         if not nolite:
@@ -99,6 +99,7 @@ parser.add_argument('--tfjs', action='store_true', help="build tf.js models, req
 parser.add_argument('--staticbatchsize', action='store', type=int, default=None, help="optional static batch size to use")
 parser.add_argument('--hardcode', default=None, choices=['00', '01', '10', '11'],
                     help="optionally hardcode values for use_relative_jacobian and adapt_movement_scale at build type")
+parser.add_argument("--prescale", dest="prescale", action="store_true", help="Reuse the result of AntiAliasInterpolation2d performed in kp_detector in the dense motion network")
 parser.add_argument('--loadwithtorch', action="store_true",
                     help="use torch to load checkpoints instead of trying to load tensor buffers manually (requires pytorch)")
 parser = parser.parse_args()
@@ -113,13 +114,13 @@ if not parser.a:
     checkpoint_path = f"checkpoint/{parser.model}-cpk.pth.tar"
     config_path = f"config/{parser.model}-256.yaml"
     output_name = config_path.split("/")[-1].split("256")[0][:-1]
-    build(checkpoint_path, config_path, output_name, parser.module, parser.predictiononly, parser.hardcode, parser.tfjs, parser.staticbatchsize, parser.nolite, parser.float16)
+    build(checkpoint_path, config_path, output_name, parser.module, parser.predictiononly, parser.hardcode, parser.tfjs, parser.staticbatchsize, parser.nolite, parser.float16, parser.prescale)
 else:
     configs = os.listdir("config/")
     checkpoints = ["checkpoint/" + x.split("256")[0] + "cpk.pth.tar" for x in configs]
     output_names = [x.split("/")[-1].split("256")[0][:-1] for x in configs]
     configs = ["config/" + x for x in configs]
     for i, config in enumerate(tqdm(configs)):
-        build(checkpoints[i], config, output_names[i], parser.module, parser.predictiononly, parser.hardcode, parser.tfjs, parser.staticbatchsize, parser.nolite, parser.float16)
+        build(checkpoints[i], config, output_names[i], parser.module, parser.predictiononly, parser.hardcode, parser.tfjs, parser.staticbatchsize, parser.nolite, parser.float16, parser.prescale)
 
 print("Done.")

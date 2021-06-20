@@ -11,8 +11,8 @@ A colab for comparing performance and outputs between this implementation and th
 ## run.py and build.py CLI
 ```
 usage: run.py [-h] [--target {direct,savedmodel,tflite}] [--mode {animate,reconstruction}] [--datamode {file,dataset}] [--model MODEL] [--source_image SOURCE_IMAGE]
-              [--driving_video DRIVING_VIDEO] [--output OUTPUT] [--dontappend] [--relative] [--adapt] [--frames FRAMES] [--batchsize BATCH_SIZE] [--exactbatch]
-              [--device DEVICE] [--profile] [--visualizer]
+              [--driving_video DRIVING_VIDEO] [--output OUTPUT] [--dontappend] [--relative] [--adapt] [--prescale] [--frames FRAMES] [--batchsize BATCH_SIZE] [--exactbatch]
+              [--device DEVICE] [--profile] [--visualizer] [--loadwithtorch]
 
 Run inference
 
@@ -33,6 +33,7 @@ optional arguments:
   --dontappend          don't append format name and .mp4 to the output filename
   --relative            relative kp mode
   --adapt               adapt movement to the proportion between the sizes of subjects in the input image and the driving video
+  --prescale            Reuse the result of AntiAliasInterpolation2d performed in kp_detector in the dense motion network
   --frames FRAMES       number of frames to process
   --batchsize BATCH_SIZE
                         batch size
@@ -41,12 +42,11 @@ optional arguments:
   --profile             enable tensorboard profiling
   --visualizer          enable visualizer, only relevant for dataset datamode
   --loadwithtorch       use torch to load checkpoints instead of trying to load tensor buffers manually (requires pytorch)
-
 ```
 
 ```
 usage: build.py [-h] [--model MODEL] [-a] [--module {all,kp_detector,generator,process_kp_driving}] [--nolite] [--predictiononly] [--float16] [--tfjs]
-                [--staticbatchsize STATICBATCHSIZE] [--hardcode {00,01,10,11}]
+                [--staticbatchsize STATICBATCHSIZE] [--hardcode {00,01,10,11}] [--prescale] [--loadwithtorch]
 
 Build saved_model, tflite, and tf.js modules from checkpoints and configs.
 
@@ -64,6 +64,7 @@ optional arguments:
                         optional static batch size to use
   --hardcode {00,01,10,11}
                         optionally hardcode values for use_relative_jacobian and adapt_movement_scale at build type
+  --prescale            Reuse the result of AntiAliasInterpolation2d performed in kp_detector in the dense motion network
   --loadwithtorch       use torch to load checkpoints instead of trying to load tensor buffers manually (requires pytorch)
 ```
 

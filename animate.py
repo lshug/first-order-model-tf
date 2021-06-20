@@ -24,7 +24,7 @@ def convert(x):
 
 def animate(source_image, driving_video, generator, kp_detector, process_kp_driving, 
             use_relative_movement=True, use_relative_jacobian=True, adapt_movement_scale=True,
-            batch_size=4, exact_batch=False, profile=False, visualizer_params=None):
+            batch_size=4, prescale=False, exact_batch=False, profile=False, visualizer_params=None):
     
     end = batch_size * (len(driving_video) // batch_size)
     @tf.function(input_signature=[tf.TensorSpec(shape=None, dtype=tf.float32)])
@@ -55,6 +55,8 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
         kp_source = kp_detector(source_image)
         kp_driving_initial = kp_detector(first_elem_reshape(driving_video))
     estimate_jacobian = 'jacobian' in kp_source.keys()
+    if prescale:
+        source_image_scaled = kp_source["source_image_scaled"]
     
     predictions = []
     visualizations = []
@@ -76,12 +78,18 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
                     kp_driving['value'], kp_driving['jacobian'], kp_driving_initial['value'], kp_driving_initial['jacobian'], kp_source['value'], kp_source['jacobian'],
                     float(use_relative_jacobian), float(adapt_movement_scale)
                 )
-                out = generator(source_image, kp_norm['value'], kp_norm['jacobian'], kp_source['value'], kp_source['jacobian'])
+                if prescale:
+                    out = generator(source_image, kp_norm['value'], kp_norm['jacobian'], kp_source['value'], kp_source['jacobian'], source_image_scaled)
+                else:
+                    out = generator(source_image, kp_norm['value'], kp_norm['jacobian'], kp_source['value'], kp_source['jacobian'])
             else:
                 kp_norm = kp_driving if not use_relative_movement else process_kp_driving(
                     kp_driving['value'], kp_driving_initial['value'], kp_source['value'], float(adapt_movement_scale)
                 )
-                out = generator(source_image, kp_norm['value'], kp_norm['value'])
+                if prescale:
+                    out = generator(source_image, kp_norm['value'], kp_norm['value'], source_image_scaled)
+                else:
+                    out = generator(source_image, kp_norm['value'], kp_norm['value'])
             try:
                 predictions.append(out['prediction'])
             except:
