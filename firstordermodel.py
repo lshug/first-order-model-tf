@@ -25,10 +25,10 @@ class AntiAliasInterpolation2d(layers.Layer):
         self.inpshape = input_shape
         kernel_size = self.kernel_size
         sigma = self.sigma
-        kernel = tf.ones(1)
+        kernel = tf.ones(1, dtype=K.floatx())
         kernel_size = [kernel_size, kernel_size]
         sigma = [sigma, sigma]
-        meshgrids = tf.meshgrid(*(tf.cast(tf.range(n), "float") for n in kernel_size))
+        meshgrids = tf.meshgrid(*(tf.cast(tf.range(n), K.floatx()) for n in kernel_size))
         for size, std, mgrid in zip(kernel_size, sigma, meshgrids):
             mean = (size - 1) / 2
             kernel = kernel * tf.exp(-((mgrid - mean) ** 2) / (2 * std ** 2))
@@ -72,8 +72,8 @@ def make_coordinate_grid(spatial_size, dtype):
     h, w = spatial_size
     h = tf.cast(h, dtype)
     w = tf.cast(w, dtype)
-    x = tf.cast(tf.range(w), dtype=dtype)
-    y = tf.cast(tf.range(h), dtype=dtype)
+    x = tf.cast(tf.range(w, dtype='float32'), dtype)
+    y = tf.cast(tf.range(h, dtype='float32'), dtype)
     x = 2 * (x / (w - 1)) - 1
     y = 2 * (y / (h - 1)) - 1
     yy = tf.tile(tf.reshape(y, (-1, 1)), (1, w))
@@ -103,7 +103,7 @@ class GaussianToKpTail(layers.Layer):
         return value, heatmap
 
     def build(self, input_shape):
-        grid = make_coordinate_grid(self.spatial_size, "float32")[None][None]
+        grid = make_coordinate_grid(self.spatial_size, K.floatx())[None][None]
         grid = tf.tile(grid, (1, self.num_kp, 1, 1, 1))
         grid = tf.reshape(grid, (-1, self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2))
         self.grid = grid
@@ -199,7 +199,7 @@ class SparseMotion(layers.Layer):
         return sparse_motions
 
     def build(self, input_shape):
-        self.grid = tf.reshape(make_coordinate_grid(self.spatial_size, "float32"), (-1, 2))
+        self.grid = tf.reshape(make_coordinate_grid(self.spatial_size, K.floatx()), (-1, 2))
         if self.estimate_jacobian:
             self.jacobian_tile = self.num_kp if input_shape[1][1]==1 else 1
         super(SparseMotion, self).build(input_shape)
@@ -272,7 +272,7 @@ class KpToGaussian(layers.Layer):
         return out
 
     def build(self, input_shape):
-        grid = tf.reshape(make_coordinate_grid(self.spatial_size, "float32"), (1, 1, self.spatial_size[0] * self.spatial_size[1], 2))
+        grid = tf.reshape(make_coordinate_grid(self.spatial_size, K.floatx()), (1, 1, self.spatial_size[0] * self.spatial_size[1], 2))
         grid = tf.tile(grid, (1, self.num_kp, 1, 1))
         self.grid = grid
         self.reshape = layers.Lambda(lambda l: tf.reshape(l, (-1, self.num_kp * self.spatial_size[0] * self.spatial_size[1], 2)), name='kptogaussianreshape')
@@ -295,12 +295,12 @@ class Interpolate(layers.Layer):
 
     def build(self, input_shape):        
         H, W = input_shape[1], input_shape[2]
-        H_f, W_f = tf.cast(H, "float32"), tf.cast(W, "float32")
+        H_f, W_f = tf.cast(H, K.floatx()), tf.cast(W, K.floatx())
         y_max = tf.floor(input_shape[1] * self.scale_factor[0])
         x_max = tf.floor(input_shape[2] * self.scale_factor[1])
-        x_scale = input_shape[2] / x_max
-        y_scale = input_shape[1] / y_max
-        grid = tf.cast(tf.transpose(tf.stack(tf.meshgrid(tf.range(x_max), tf.range(y_max))[::-1]), (1, 2, 0)), "float32")
+        x_scale = tf.cast(input_shape[2] / x_max, K.floatx())
+        y_scale = tf.cast(input_shape[1] / y_max, K.floatx())
+        grid = tf.cast(tf.transpose(tf.stack(tf.meshgrid(tf.range(x_max), tf.range(y_max))[::-1]), (1, 2, 0)), K.floatx())
         grid_shape = (1, *grid.shape)
         flat_grid = tf.reshape(grid, (-1, 2))
         flat_grid = tf.stack(([(tf.math.minimum(tf.floor((flat_grid[..., 0]) * y_scale), H_f - 1)), tf.math.minimum(tf.floor((flat_grid[..., 1]) * x_scale), W_f - 1)]))
@@ -364,15 +364,15 @@ class BilinearInterpolate(layers.Layer):
         if self.static_batch_size is not None:
             self.brange = tf.range(self.static_batch_size)
         size = self.size
-        x_scale = tf.cast(input_shape[2] / size[1], "float32")
-        y_scale = tf.cast(input_shape[1] / size[0], "float32")
+        x_scale = tf.cast(input_shape[2] / size[1], K.floatx())
+        y_scale = tf.cast(input_shape[1] / size[0], K.floatx())
         H, W = input_shape[1], input_shape[2]
         zeros = tf.zeros((size[0], size[1]), dtype="int32")
         ones = tf.expand_dims(tf.ones((size[0], size[1]), dtype="int32"), 2)
         self.zeros = zeros
         self.ones = ones
 
-        grid = tf.cast(tf.transpose(tf.stack(tf.meshgrid(tf.range(size[1]), tf.range(size[0]))[::-1]), (1, 2, 0)), "float32")
+        grid = tf.cast(tf.transpose(tf.stack(tf.meshgrid(tf.range(size[1]), tf.range(size[0]))[::-1]), (1, 2, 0)), K.floatx())
         grid_shape = (size[1], size[0], 2)
         flat_grid = tf.reshape(grid, (-1, 2))
         flat_grid = tf.stack([(flat_grid[:, 0] + 0.5) * y_scale - 0.5, (flat_grid[:, 1] + 0.5) * x_scale - 0.5])
@@ -380,7 +380,7 @@ class BilinearInterpolate(layers.Layer):
         flat_grid = tf.math.maximum(flat_grid, 0)
         grid = tf.reshape(flat_grid, grid_shape)
         grid_int = tf.cast(tf.floor(grid), "int32")
-        grid_float = tf.cast(grid_int, "float32")
+        grid_float = tf.cast(grid_int, K.floatx())
         y = tf.cast(tf.transpose(tf.stack([tf.cast(grid_int[..., 0] < W - 1, "int32"), zeros]), (1, 2, 0)), "int32")
         x = tf.cast(tf.transpose(tf.stack([zeros, tf.cast(grid_int[..., 1] < H - 1, "int32")]), (1, 2, 0)), "int32")
         
@@ -547,7 +547,7 @@ class GridSample(layers.Layer):
         # loop
         if self.static_batch_size is None:
             N = tf.shape(x)[0]
-            b = tf.range(N, dtype='float32')
+            b = tf.cast(tf.range(N, dtype='float32'), K.floatx())
             b = tf.reshape(b, (-1, 1, 1, 1))
             b = tf.tile(b, (1, H, W, 1))         
         else:
@@ -600,11 +600,11 @@ class GridSample(layers.Layer):
             coefs.append(float(tf.reduce_prod(img_shape[i+1:-1]).numpy()))
         self.i_H, self.i_W = grid_shape[1], grid_shape[2]
         if self.static_batch_size is not None:
-            self.brange = tf.cast(tf.tile(tf.reshape(tf.range(self.static_batch_size), (-1,1,1,1)), (1, self.i_H, self.i_W, 1)), 'float32').numpy()
+            self.brange = tf.cast(tf.tile(tf.reshape(tf.range(self.static_batch_size), (-1,1,1,1)), (1, self.i_H, self.i_W, 1)), K.floatx()).numpy()
             self.coefs = coefs
             self.img_shape = (*img_shape,)
             self.final_shape = (self.static_batch_size, *grid_shape[1:-1], img_shape[-1])
-        self.H, self.W = tf.cast(grid_shape[1], "float32"), tf.cast(grid_shape[2], "float32")
+        self.H, self.W = tf.cast(grid_shape[1], K.floatx()), tf.cast(grid_shape[2], K.floatx())
         self.iH, self.iW = tf.cast(img_shape[1], "int32"), tf.cast(img_shape[2], "int32")
         super(GridSample, self).build(input_shape)
     
@@ -774,7 +774,7 @@ def build_kp_detector_base(
     static_batch_size=None,
     prescale=False,
 ):
-    inp = layers.Input(shape=(frame_shape[0], frame_shape[1], num_channels), dtype="float32", name="img")
+    inp = layers.Input(shape=(frame_shape[0], frame_shape[1], num_channels), dtype=K.floatx(), name="img")
     
     # downsample
     if scale_factor == 1:
@@ -891,7 +891,7 @@ class KpDetector(tf.Module):
             static_batch_size=static_batch_size,
             prescale=prescale
         )
-        self.__call__ = tf.function(input_signature=[tf.TensorSpec([static_batch_size, frame_shape[0], frame_shape[1], num_channels], tf.float32)])(self.__call__)
+        self.__call__ = tf.function(input_signature=[tf.TensorSpec([static_batch_size, frame_shape[0], frame_shape[1], num_channels], K.floatx())])(self.__call__)
         super(KpDetector, self).__init__()
     
     def __call__(self, img):
@@ -920,14 +920,14 @@ def build_generator_base(
     prescale=False,
 ):
     jacobian_number = 1 if single_jacobian_map else num_kp
-    inp = layers.Input(shape=(frame_shape[0], frame_shape[1], num_channels), dtype="float32", name="source")
-    driving_kp = layers.Input(shape=(num_kp, 2), dtype="float32", name="kp_driving")
-    kp_driving_jacobian = layers.Input(shape=(jacobian_number, 2, 2), dtype="float32", name="kp_driving_jacobian")
-    source_kp = layers.Input(shape=(num_kp, 2), dtype="float32", name="kp_source")
-    kp_source_jacobian = layers.Input(shape=(jacobian_number, 2, 2), dtype="float32", name="kp_source_jacobian")
+    inp = layers.Input(shape=(frame_shape[0], frame_shape[1], num_channels), dtype=K.floatx(), name="source")
+    driving_kp = layers.Input(shape=(num_kp, 2), dtype=K.floatx(), name="kp_driving")
+    kp_driving_jacobian = layers.Input(shape=(jacobian_number, 2, 2), dtype=K.floatx(), name="kp_driving_jacobian")
+    source_kp = layers.Input(shape=(num_kp, 2), dtype=K.floatx(), name="kp_source")
+    kp_source_jacobian = layers.Input(shape=(jacobian_number, 2, 2), dtype=K.floatx(), name="kp_source_jacobian")
     if prescale and dense_motion_params is not None:
         scale_factor = dense_motion_params["scale_factor"]
-        inp_scaled = layers.Input(shape=(int(frame_shape[0] * scale_factor), int(frame_shape[1] * scale_factor), num_channels), dtype="float32", name="source_image_scaled")
+        inp_scaled = layers.Input(shape=(int(frame_shape[0] * scale_factor), int(frame_shape[1] * scale_factor), num_channels), dtype=K.floatx(), name="source_image_scaled")
     else:
         inp_scaled = None
 
@@ -1058,15 +1058,15 @@ class Generator(tf.Module):
             prescale=prescale,
         )
         input_signature=[
-                tf.TensorSpec([1, frame_shape[0], frame_shape[1], num_channels], tf.float32),
-                tf.TensorSpec([static_batch_size, num_kp, 2], tf.float32),
-                tf.TensorSpec([static_batch_size, jacobian_number, 2, 2], tf.float32),
-                tf.TensorSpec([1, num_kp, 2], tf.float32),
-                tf.TensorSpec([1, jacobian_number, 2, 2], tf.float32),
+                tf.TensorSpec([1, frame_shape[0], frame_shape[1], num_channels], K.floatx()),
+                tf.TensorSpec([static_batch_size, num_kp, 2], K.floatx()),
+                tf.TensorSpec([static_batch_size, jacobian_number, 2, 2], K.floatx()),
+                tf.TensorSpec([1, num_kp, 2], K.floatx()),
+                tf.TensorSpec([1, jacobian_number, 2, 2], K.floatx()),
             ]
         if prescale and dense_motion_params is not None:
             scale_factor = dense_motion_params["scale_factor"]
-            input_signature.append(tf.TensorSpec([1, int(frame_shape[0] * scale_factor), int(frame_shape[1] * scale_factor), num_channels], tf.float32, name="source_image_scaled"))
+            input_signature.append(tf.TensorSpec([1, int(frame_shape[0] * scale_factor), int(frame_shape[1] * scale_factor), num_channels], K.floatx(), name="source_image_scaled"))
         if estimate_jacobian:
             self.__call__ = tf.function(input_signature=input_signature)(self.__call__)
         else:
@@ -1103,20 +1103,20 @@ class ProcessKpDriving(tf.Module):
         sqrng = self.sqrng
         left = tf.reshape(sqrng, (self.L, self.L))
         right = tf.transpose(left)
-        self.eye = tf.cast((left==right), 'float32').numpy()
+        self.eye = tf.cast((left==right), K.floatx()).numpy()
         self.L_ones = tf.ones((self.L, 1)).numpy()
         if static_batch_size is not None:
             self.brange = tf.range(static_batch_size)
             self.bsqrange = tf.range(static_batch_size * static_batch_size)
         input_signature=[
-                tf.TensorSpec([static_batch_size, num_kp, 2], tf.float32),
-                tf.TensorSpec([static_batch_size, jacobian_number, 2, 2], tf.float32),
-                tf.TensorSpec([1, num_kp, 2], tf.float32),
-                tf.TensorSpec([1, jacobian_number, 2, 2], tf.float32),
-                tf.TensorSpec([1, num_kp, 2], tf.float32),
-                tf.TensorSpec([1, jacobian_number, 2, 2], tf.float32),
-                tf.TensorSpec((), tf.float32),
-                tf.TensorSpec((), tf.float32),
+                tf.TensorSpec([static_batch_size, num_kp, 2], K.floatx()),
+                tf.TensorSpec([static_batch_size, jacobian_number, 2, 2], K.floatx()),
+                tf.TensorSpec([1, num_kp, 2], K.floatx()),
+                tf.TensorSpec([1, jacobian_number, 2, 2], K.floatx()),
+                tf.TensorSpec([1, num_kp, 2], K.floatx()),
+                tf.TensorSpec([1, jacobian_number, 2, 2], K.floatx()),
+                tf.TensorSpec((), K.floatx()),
+                tf.TensorSpec((), K.floatx()),
             ]
         if estimate_jacobian:
             self.__call__ = tf.function(input_signature=input_signature)(self.__call__)

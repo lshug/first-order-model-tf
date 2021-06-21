@@ -12,7 +12,7 @@ from frames_dataset import FramesDataset, DatasetRepeater, PairedDataset
 parser = argparse.ArgumentParser(description="Run inference")
 parser.add_argument('--target', choices=['direct', 'savedmodel', 'tflite'], default='direct',
                     help="model version to run (between running the model directly, running the model's saved_model, and running its converted tflite")
-parser.add_argument('--mode', choices=['animate', 'reconstruction',], default='animate', help="Run mode (animate, reconstruct, or train)")
+parser.add_argument('--mode', choices=['animate', 'reconstruction',], default='animate', help="Run mode (animate, reconstruct)")
 parser.add_argument('--datamode', choices=['file', 'dataset'], default='file', help='Data input mode (CLI-given file or config-defined dataset)')
 parser.add_argument("--model", action="store", type=str, default="vox", help="model name")
 parser.add_argument("--source_image", action="store", type=str, default="example/source.png", help="source image path for file datamode")
@@ -25,6 +25,7 @@ parser.add_argument("--prescale", dest="prescale", action="store_true", help="Re
 parser.add_argument("--frames", type=int, default=-1, help="number of frames to process")
 parser.add_argument("--batchsize", dest="batch_size", type=int, default=4, help="batch size")
 parser.add_argument("--exactbatch", dest="exact_batch", action="store_true", help="force static batch size, tile source image to batch size")
+parser.add_argument("--float16", action="store_true", help="use fp16 precision")
 parser.add_argument("--device", dest="device", default=None, help="device to use")
 parser.add_argument("--profile", action="store_true", help="enable tensorboard profiling")
 parser.add_argument("--visualizer", action="store_true", help="enable visualizer, only relevant for dataset datamode")
@@ -32,6 +33,9 @@ parser.add_argument('--loadwithtorch', action="store_true",
                     help="use torch to load checkpoints instead of trying to load tensor buffers manually (requires pytorch)")
 
 parser = parser.parse_args()
+
+if parser.float16:
+    tf.keras.backend.set_floatx('float16')
 
 if parser.loadwithtorch:
     import load_torch_checkpoint
