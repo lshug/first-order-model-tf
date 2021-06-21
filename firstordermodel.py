@@ -175,7 +175,7 @@ class SparseMotion(layers.Layer):
                 for i in range(jacobian_number):
                     lt = tf.reshape(left[:, i:i+1, :, :], (-1, 2))[:]
                     rt = tf.reshape(right[None][:, i:i+1], (2, 2))
-                    out = tf.nn.bias_add(lt @ rt, tf.ones(2) * 1e-20)
+                    out = tf.nn.bias_add(lt @ rt, tf.ones(2, dtype=K.floatx()) * 1e-20)
                     res.append(tf.reshape(out, (self.static_batch_size, 1, 2, 2))) # b 1 2 2
                 jacobian_inter = tf.concat(res, 1)                
                 jacobian = tf.transpose(jacobian_inter, (0,1,3,2))                
@@ -187,7 +187,7 @@ class SparseMotion(layers.Layer):
                 for i in range(r):
                     right = tf.transpose(tf.reshape(reshaped_jacobian[None][:, i:i+1], (2, 2)))
                     left = tf.reshape(reshaped_grid[None][:, i:i+1], (h * w, 2))[:]
-                    o = tf.nn.bias_add(left @ right, tf.ones(2) * 1e-20)
+                    o = tf.nn.bias_add(left @ right, tf.ones(2, dtype=K.floatx()) * 1e-20)
                     out.append(tf.reshape(o, (1, h*w, 2)))
                 coordinate_grid = tf.reshape(tf.concat(out, 0), (self.static_batch_size, self.num_kp, h * w, 2))                
 
@@ -496,7 +496,7 @@ class GridSample(layers.Layer):
     def _pseudo_gather_nd(self, img, grid):
         img_shape, final_shape = self.img_shape, self.final_shape
         img = tf.reshape(img, (-1, img_shape[-1]))
-        grid = tf.reshape(grid, (-1, len(img_shape) - 1))
+        grid = tf.cast(tf.reshape(grid, (-1, len(img_shape) - 1)), 'int32')
         s = 0
         for i in range(len(img_shape) - 1):
             s += self.coefs[i] * tf.reshape(grid[None][:, :, i:i+1], (-1,))
@@ -597,7 +597,7 @@ class GridSample(layers.Layer):
         grid_shape = input_shape[1]
         coefs = []
         for i in range(len(img_shape) - 1):
-            coefs.append(float(tf.reduce_prod(img_shape[i+1:-1]).numpy()))
+            coefs.append(int(tf.reduce_prod(img_shape[i+1:-1]).numpy()))
         self.i_H, self.i_W = grid_shape[1], grid_shape[2]
         if self.static_batch_size is not None:
             self.brange = tf.cast(tf.tile(tf.reshape(tf.range(self.static_batch_size), (-1,1,1,1)), (1, self.i_H, self.i_W, 1)), K.floatx()).numpy()
@@ -1183,7 +1183,7 @@ class ProcessKpDriving(tf.Module):
         for i in range(self.jacobian_number):
             left = tf.reshape(A[:, i:i+1, :, :], (self.static_batch_size * 2, 2))
             right = tf.reshape(v[None][:, i:i+1], (2, 2))
-            out = tf.nn.bias_add(left @ right, tf.ones(2) * 1e-30)
+            out = tf.nn.bias_add(left @ right, tf.ones(2, dtype=K.floatx()) * 1e-30)
             res.append(tf.reshape(out, (1, self.static_batch_size * 2, 2))) # b 1 2 2
         return tf.reshape(tf.transpose(tf.reshape(tf.concat(res, 0), (self.num_kp, self.static_batch_size, 2, 2)), (1, 0, 2, 3)), (self.static_batch_size, self.jacobian_number, 2, 2))
     

@@ -108,4 +108,4 @@ def animate(source_image, driving_video, generator, kp_detector, process_kp_driv
     if profile:
         tf.profiler.experimental.stop()
         
-    return np.concatenate([tf.concat(predictions, 0).numpy()], 0)[:original_l], np.concatenate(visualizations, 0) if len(visualizations) > 0 else None
+    return tf.concat(predictions, 0).numpy()[:original_l], np.concatenate(visualizations, 0) if len(visualizations) > 0 else None
