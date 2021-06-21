@@ -1104,7 +1104,7 @@ class ProcessKpDriving(tf.Module):
         left = tf.reshape(sqrng, (self.L, self.L))
         right = tf.transpose(left)
         self.eye = tf.cast((left==right), K.floatx()).numpy()
-        self.L_ones = tf.ones((self.L, 1)).numpy()
+        self.L_ones = tf.ones((self.L, 1), dtype=K.floatx()).numpy()
         if static_batch_size is not None:
             self.brange = tf.range(static_batch_size)
             self.bsqrange = tf.range(static_batch_size * static_batch_size)
@@ -1183,7 +1183,7 @@ class ProcessKpDriving(tf.Module):
         for i in range(self.jacobian_number):
             left = tf.reshape(A[:, i:i+1, :, :], (self.static_batch_size * 2, 2))
             right = tf.reshape(v[None][:, i:i+1], (2, 2))
-            out = tf.nn.bias_add(left @ right, tf.ones(2, dtype=K.floatx()) * 1e-30)
+            out = tf.nn.bias_add(left @ right, tf.ones(2, dtype=left.dtype) * 1e-30)
             res.append(tf.reshape(out, (1, self.static_batch_size * 2, 2))) # b 1 2 2
         return tf.reshape(tf.transpose(tf.reshape(tf.concat(res, 0), (self.num_kp, self.static_batch_size, 2, 2)), (1, 0, 2, 3)), (self.static_batch_size, self.jacobian_number, 2, 2))
     
