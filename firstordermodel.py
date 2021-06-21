@@ -486,6 +486,13 @@ class GridSample(layers.Layer):
     def call(self, data):
         return self._grid_sample(data)
     
+    def grt(self, x, y):
+        z = x - y
+        z = tf.math.maximum(z, 0.0)
+        z = z / (z + 1.0)
+        z = -1.0 * (tf.floor(1.0 - z) - 1.0)
+        return z
+    
     def _pseudo_gather_nd(self, img, grid):
         img_shape, final_shape = self.img_shape, self.final_shape
         img = tf.reshape(img, (-1, img_shape[-1]))
@@ -527,10 +534,10 @@ class GridSample(layers.Layer):
         se = n * w
                 
         # forward
-        w_mask = tf.cast((x_w > -1.0), 'float32') * tf.cast((x_w < float(self.i_W)), 'float32')
-        n_mask = tf.cast((y_n > -1.0), 'float32') * tf.cast((y_n < float(self.i_H)), 'float32')
-        e_mask = tf.cast((x_e > -1.0), 'float32') * tf.cast((x_e < float(self.i_W)), 'float32')
-        s_mask = tf.cast((y_s > -1.0), 'float32') * tf.cast((y_s < float(self.i_H)), 'float32')
+        w_mask = self.grt(x_w, -1.0) * self.grt(float(self.i_W), x_w)
+        n_mask = self.grt(y_n, -1.0) * self.grt(float(self.i_H), y_n)
+        e_mask = self.grt(x_e, -1.0) * self.grt(float(self.i_W), x_e)
+        s_mask = self.grt(y_s, -1.0) * self.grt(float(self.i_H), y_s)
         
         nw_mask = w_mask * n_mask
         ne_mask = e_mask * n_mask
