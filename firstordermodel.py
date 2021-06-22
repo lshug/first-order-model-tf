@@ -6,7 +6,7 @@ from load_torch_checkpoint import load_torch_checkpoint
 
 class AntiAliasInterpolation2d(layers.Layer):
     def __init__(self, channels, scale, static_batch_size=None, **kwargs):
-        sigma = (1 / scale - 1) / 2
+        sigma = 1.5 #(1 / scale - 1) / 2
         kernel_size = 2 * round(sigma * 4) + 1
         ka = kernel_size // 2
         kb = ka - 1 if kernel_size % 2 == 0 else ka
@@ -464,7 +464,7 @@ class BilinearInterpolate(layers.Layer):
 
         w0 = tf.reshape(l[..., 1:2], (-1, size[0], size[1], 1)) #-1, H, W, 1
         w1 = 1 - w0
-        h0 = w0 = tf.reshape(l[..., 0:1], (-1, size[0], size[1], 1))
+        h0 = tf.reshape(l[..., 0:1], (-1, size[0], size[1], 1))
         h1 = 1 - h0
 
         return h1 * (w1 * val00 + w0 * val01) + h0 * (w1 * val10 + w0 * val11)
